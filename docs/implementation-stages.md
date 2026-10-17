@@ -1,7 +1,7 @@
 # TeachOnce — Stage-Wise Implementation How-To
 
 **Status:** Detailed commands / acceptance criteria  
-**Living tracker (checkboxes, log, next up):** [`implementation.md`](implementation.md) ← **maintain status there**  
+**Living tracker:** [`implementation.md`](implementation.md) · **Phase plans:** [`phases/README.md`](phases/README.md) · **Phase 1:** [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md)  
 **Source of truth for product:** [`plan.md`](plan.md) · Architecture: [`hld.md`](hld.md) · Contracts: [`lld.md`](lld.md)  
 **Brev / vLLM how-to (hackathon handout):** [`vLLM/brevsetup.pdf`](vLLM/brevsetup.pdf)  
 **AI policy:** NVIDIA-only — see [`plan.md`](plan.md) § Mandatory NVIDIA-only AI infrastructure policy  
@@ -11,7 +11,7 @@ This document is the deep how-to for each stage. Update progress in [`implementa
 ```text
 Phase 0  Infra (Brev + vLLM + NeMo Gym)     ← NOW
 Phase 1  Canonical dataset + DAG runtime
-Phase 2  Nemotron Nano 9B LoRA + Red Hat serve
+Phase 2  Nemotron Nano 12B VL LoRA + Red Hat serve
 Phase 3  FastAPI app + TeachOnce UI
 Phase 4  E2E demo polish (Flows A–C)
 ```
@@ -307,11 +307,11 @@ Write into `docs/brev.md`:
 
 ---
 
-## Phase 2 — Nemotron Nano 9B LoRA + Red Hat serve
+## Phase 2 — Nemotron Nano 12B VL LoRA + Red Hat serve
 
 **Depends on:** Phase 0 (Brev habits, scripts) + Phase 1 training JSONL.
 
-1. Milestone 0 model path on Brev: load `nvidia/NVIDIA-Nemotron-Nano-9B-v2`, one inference  
+1. Milestone 0 model path on Brev: load `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16`, one **video** inference  
 2. Short NeMo AutoModel LoRA smoke → merge (Mamba / `vllm_merge_lora`)  
 3. Full TeachOnce LoRA on canonical JSONL (single practical run)  
 4. Serve merged checkpoint via **Red Hat AI Inference Server** when available; else vLLM with NVIDIA-only gateway  

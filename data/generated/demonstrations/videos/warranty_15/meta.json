@@ -1,0 +1,97 @@
+{
+  "video_id": "warranty_15",
+  "source_dataset": "teachonce_self_synthetic",
+  "generation_method": "agent_driven_northstar_console",
+  "procedure": "warranty",
+  "family": "warranty_resolution",
+  "split": "train",
+  "path_type": "expired",
+  "duration_sec": 34.08,
+  "fps": 24,
+  "resolution": "1280x720",
+  "goal": "Handle expired warranty \u2014 record paid service options",
+  "sop": null,
+  "case": {
+    "customer_id": "C-2109",
+    "device_id": "D-3301",
+    "ticket_id": "CS-49102",
+    "warranty_status": "EXPIRED",
+    "severity": "P3"
+  },
+  "ops": [
+    "LOOKUP_CUSTOMER",
+    "GET_TICKET",
+    "GET_DEVICE",
+    "CHECK_WARRANTY",
+    "GET_DIAGNOSTICS",
+    "RECORD_PAID_OPTIONS",
+    "UPDATE_TICKET"
+  ],
+  "events": [
+    {
+      "t_start": 0.0,
+      "t_end": 4.21,
+      "op": "LOOKUP_CUSTOMER",
+      "label": "Lookup Customer",
+      "observed": {
+        "customer_id": "C-2109"
+      }
+    },
+    {
+      "t_start": 4.21,
+      "t_end": 8.42,
+      "op": "GET_TICKET",
+      "label": "Get Ticket",
+      "observed": {
+        "ticket_id": "CS-49102"
+      }
+    },
+    {
+      "t_start": 8.42,
+      "t_end": 12.63,
+      "op": "GET_DEVICE",
+      "label": "Get Device",
+      "observed": {
+        "device_id": "D-3301"
+      }
+    },
+    {
+      "t_start": 12.63,
+      "t_end": 16.84,
+      "op": "CHECK_WARRANTY",
+      "label": "Check Warranty",
+      "observed": {
+        "status": "EXPIRED"
+      }
+    },
+    {
+      "t_start": 16.84,
+      "t_end": 21.05,
+      "op": "GET_DIAGNOSTICS",
+      "label": "Get Diagnostics",
+      "observed": {}
+    },
+    {
+      "t_start": 21.05,
+      "t_end": 25.26,
+      "op": "RECORD_PAID_OPTIONS",
+      "label": "Record Paid Options",
+      "observed": {
+        "warranty_status": "EXPIRED"
+      }
+    },
+    {
+      "t_start": 25.26,
+      "t_end": 29.47,
+      "op": "UPDATE_TICKET",
+      "label": "Update Ticket",
+      "observed": {
+        "ticket_id": "CS-49102"
+      }
+    }
+  ],
+  "tools_ref": "mvp_registry_v1",
+  "console_url": "?procedure=warranty&path=expired&hud=0",
+  "prompt_variant": "light",
+  "notes": "Recorded from northstar-console; done=True"
+}

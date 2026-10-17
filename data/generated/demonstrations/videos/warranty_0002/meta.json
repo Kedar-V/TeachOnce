@@ -1,0 +1,102 @@
+{
+  "video_id": "warranty_0002",
+  "source_dataset": "teachonce_self_synthetic",
+  "generation_method": "synthetic_screen_recording",
+  "family": "warranty_resolution",
+  "split": "train",
+  "path_type": "active",
+  "duration_sec": 41.08,
+  "fps": 24,
+  "resolution": "1280x720",
+  "goal": "Resolve laptop hardware warranty and create repair if covered",
+  "sop": "Search customer \u2192 open ticket \u2192 open device \u2192 check warranty \u2192 run diagnostics \u2192 create repair \u2192 update ticket",
+  "case": {
+    "customer_id": "C-1002",
+    "device_id": "D-2002",
+    "ticket_id": "CS-48002",
+    "warranty_id": "W-9002",
+    "warranty_status": "ACTIVE"
+  },
+  "ops": [
+    "LOOKUP_CUSTOMER",
+    "GET_TICKET",
+    "GET_DEVICE",
+    "CHECK_WARRANTY",
+    "GET_DIAGNOSTICS",
+    "CREATE_REPAIR",
+    "UPDATE_TICKET"
+  ],
+  "events": [
+    {
+      "t_start": 0.0,
+      "t_end": 7.04,
+      "op": "LOOKUP_CUSTOMER",
+      "label": "Search customer",
+      "observed": {
+        "customer_id": "C-1002"
+      }
+    },
+    {
+      "t_start": 7.04,
+      "t_end": 11.62,
+      "op": "GET_TICKET",
+      "label": "Open ticket",
+      "observed": {
+        "ticket_id": "CS-48002"
+      }
+    },
+    {
+      "t_start": 11.62,
+      "t_end": 15.83,
+      "op": "GET_DEVICE",
+      "label": "Open device",
+      "observed": {
+        "device_id": "D-2002",
+        "serial": "SN-9002-X02"
+      }
+    },
+    {
+      "t_start": 15.83,
+      "t_end": 20.25,
+      "op": "CHECK_WARRANTY",
+      "label": "Check warranty",
+      "observed": {
+        "warranty_id": "W-9002",
+        "status": "ACTIVE",
+        "end": "2027-03-14"
+      }
+    },
+    {
+      "t_start": 20.25,
+      "t_end": 24.96,
+      "op": "GET_DIAGNOSTICS",
+      "label": "Run diagnostics",
+      "observed": {
+        "device_id": "D-2002",
+        "result": "HDD failure"
+      }
+    },
+    {
+      "t_start": 24.96,
+      "t_end": 32.38,
+      "op": "CREATE_REPAIR",
+      "label": "Create repair order",
+      "observed": {
+        "repair_id": "SR-88002"
+      }
+    },
+    {
+      "t_start": 32.38,
+      "t_end": 41.08,
+      "op": "UPDATE_TICKET",
+      "label": "Update ticket",
+      "observed": {
+        "ticket_id": "CS-48002",
+        "status": "Repair scheduled"
+      }
+    }
+  ],
+  "tools_ref": "mvp_registry_v1",
+  "prompt_variant": "light theme baseline",
+  "notes": "PIL synthetic SaaS UI (active)."
+}

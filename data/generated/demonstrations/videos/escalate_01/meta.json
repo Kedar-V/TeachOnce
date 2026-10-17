@@ -1,0 +1,77 @@
+{
+  "video_id": "escalate_01",
+  "source_dataset": "teachonce_self_synthetic",
+  "generation_method": "agent_driven_northstar_console",
+  "procedure": "escalate",
+  "family": "severity_escalation",
+  "split": "train",
+  "path_type": "p1",
+  "duration_sec": 25.62,
+  "fps": 24,
+  "resolution": "1280x720",
+  "goal": "Triage P1 ticket and page on-call",
+  "sop": null,
+  "case": {
+    "customer_id": "C-5010",
+    "device_id": "D-9001",
+    "ticket_id": "CS-50001",
+    "warranty_status": "ACTIVE",
+    "severity": "P1"
+  },
+  "ops": [
+    "GET_TICKET",
+    "LOOKUP_CUSTOMER",
+    "ASSESS_SEVERITY",
+    "PAGE_ONCALL",
+    "UPDATE_TICKET"
+  ],
+  "events": [
+    {
+      "t_start": 0.0,
+      "t_end": 4.21,
+      "op": "GET_TICKET",
+      "label": "Get Ticket",
+      "observed": {
+        "ticket_id": "CS-50001"
+      }
+    },
+    {
+      "t_start": 4.21,
+      "t_end": 8.42,
+      "op": "LOOKUP_CUSTOMER",
+      "label": "Lookup Customer",
+      "observed": {
+        "customer_id": "C-5010"
+      }
+    },
+    {
+      "t_start": 8.42,
+      "t_end": 12.62,
+      "op": "ASSESS_SEVERITY",
+      "label": "Assess Severity",
+      "observed": {
+        "severity": "P1"
+      }
+    },
+    {
+      "t_start": 12.62,
+      "t_end": 16.84,
+      "op": "PAGE_ONCALL",
+      "label": "Page Oncall",
+      "observed": {}
+    },
+    {
+      "t_start": 16.84,
+      "t_end": 21.04,
+      "op": "UPDATE_TICKET",
+      "label": "Update Ticket",
+      "observed": {
+        "ticket_id": "CS-50001"
+      }
+    }
+  ],
+  "tools_ref": "mvp_registry_v1",
+  "console_url": "?procedure=escalate&path=p1&hud=0",
+  "prompt_variant": "light",
+  "notes": "Recorded from northstar-console; done=True"
+}

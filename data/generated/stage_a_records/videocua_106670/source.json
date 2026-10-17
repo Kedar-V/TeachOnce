@@ -1,0 +1,16 @@
+{
+  "task_id": 106670,
+  "task_instruction": "Place cursor over the current CPU usage.",
+  "platform": "Conky",
+  "action_log": [
+    {
+      "action_type": "MOVE_TO",
+      "timestamp": 3.255,
+      "action_params": {
+        "x": 159,
+        "y": 256
+      },
+      "groundcua_id": null
+    }
+  ]
+}

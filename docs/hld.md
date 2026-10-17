@@ -12,7 +12,7 @@ TeachOnce uses **NVIDIA models exclusively** for every AI training and inference
 
 | Allowed | Forbidden |
 |---------|-----------|
-| Nemotron Nano 9B v2 on Brev via Red Hat vLLM | OpenAI, Anthropic/Claude, Gemini, Groq, OpenRouter, Together, Fireworks |
+| Nemotron Nano 12B v2 VL on Brev via Red Hat vLLM | OpenAI, Anthropic/Claude, Gemini, Groq, OpenRouter, Together, Fireworks |
 | NeMo AutoModel LoRA on Brev A100 | Cursor-hosted model APIs as an app dependency |
 | FastAPI → self-hosted `NVIDIA_VLLM_BASE_URL` | External LLM fallbacks; teacher models outside NVIDIA infra |
 | OpenAI-**compatible protocol** to **our** Brev endpoint | Default `api.openai.com` (or similar) env/SDK defaults |
@@ -23,11 +23,12 @@ Frontend never calls an AI provider. Cursor may be used as an IDE only.
 
 ## 1. Purpose
 
-TeachOnce turns enterprise procedural knowledge into **executable, inspectable workflow automations**.
+TeachOnce turns **expert screen recordings** of enterprise processes into **executable, inspectable workflow automations** (**video → DAG**).
 
 | Layer | Responsibility |
 |-------|----------------|
-| Fine-tuned Nemotron | Compile Procedure Package → typed DAG JSON |
+| Expert video | Primary teach asset = screen recording (MP4) fed to Nemotron VL |
+| Fine-tuned Nemotron VL | Compile Procedure Package (**video** [+ optional SOP/tools]) → typed DAG JSON over **tool registry** |
 | Deterministic platform | Validate DAG, execute against mock enterprise APIs, persist state, monitor |
 
 The HLD describes major subsystems, data ownership, trust boundaries, and end-to-end flows. It does not specify field-level schemas (see LLD).
@@ -36,18 +37,19 @@ The HLD describes major subsystems, data ownership, trust boundaries, and end-to
 
 ## 2. Design goals
 
-1. **One coherent enterprise world** — all screens, tools, training data, and demos share one frozen dataset.  
-2. **Genuine NVIDIA model contribution** — live generate path uses fine-tuned Nemotron via Red Hat vLLM on Brev; no hardcoded DAG and no third-party LLM in the final demo.  
-3. **Deterministic execution** — the GPU is not on the execution hot path; tools and decisions are real and inspectable.  
-4. **Demo-ready polish** — UI matches the TeachOnce enterprise mock; Flows A–C are reliable.  
-5. **Minimal infra** — single Brev GPU instance + FastAPI + React; no Kubernetes.  
-6. **NVIDIA-only AI** — one centralized inference gateway; hard-fail if Brev endpoint is unset.  
+1. **One coherent enterprise world** — videos, traces, tools, training data, and demos share one frozen dataset.  
+2. **Video-taught automation** — Flow A starts from an expert recording, not SOP-only.  
+3. **Genuine NVIDIA model contribution** — live generate uses fine-tuned Nemotron via Red Hat vLLM on Brev; no hardcoded DAG and no third-party LLM in the final demo.  
+4. **Deterministic execution** — the GPU is not on the execution hot path; tools and decisions are real and inspectable.  
+5. **Demo-ready polish** — UI matches the TeachOnce enterprise mock; Flows A–C are reliable.  
+6. **Minimal infra** — single Brev GPU instance + FastAPI + React; no Kubernetes.  
+7. **NVIDIA-only AI** — one centralized inference gateway; hard-fail if Brev endpoint is unset.  
 
 ### Non-goals (MVP)
 
-Second SOP families, Test Lab, Review Queue, multi-agent orchestration, real CRM/ITSM, SSO, video understanding, advanced recovery, multi-tenant SaaS hardening, any non-NVIDIA hosted LLM, any edge-case recovery beyond one compile retry.
+Second SOP families, Test Lab, Review Queue, multi-agent orchestration, real CRM/ITSM, SSO, **open-web RPA / arbitrary click agents**, raw-pixels→DAG without a structured trace (stretch only), advanced recovery, multi-tenant SaaS hardening, any non-NVIDIA hosted LLM, any edge-case recovery beyond one compile retry.
 
-**MVP ship bar:** Flows A–C on one warranty DAG. Everything else is distraction.
+**MVP ship bar:** Flows A–C on one warranty DAG taught from **expert video + aligned trace**. Everything else is distraction.
 
 ---
 
@@ -56,8 +58,8 @@ Second SOP families, Test Lab, Review Queue, multi-agent orchestration, real CRM
 | Concern | Choice |
 |---------|--------|
 | Training / GPU | NVIDIA Brev, **1× A100 80GB**, ~$160 credits |
-| Base model | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` (9B) |
-| Fine-tuning | NeMo AutoModel LoRA (recipe: `nemotron_nano_9b_squad_peft.yaml` adapted) |
+| Base model | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` (12.6B, video+image+text) |
+| Fine-tuning | NeMo AutoModel / VL PEFT on video→DAG pairs |
 | Serving | Red Hat AI Inference Server (vLLM) on Brev; **merge LoRA** before serve (Mamba constraint) |
 | App → model | FastAPI `services/nvidia_inference.py` → `NVIDIA_VLLM_BASE_URL` only |
 | Runtime DB | SQLite (seeded from canonical dataset) |
@@ -120,16 +122,18 @@ flowchart TB
     subgraph SOURCES["B · DERIVED DATA ASSETS"]
         direction LR
         ENT["Enterprise Records<br/>Customers · Devices · Tickets<br/>Warranties · Diagnostics"]
-        POLICY["SOPs + Business Policies"]
-        DEMO["Expert Demonstration Traces"]
+        VID["Expert Screen-Recording Videos"]
+        DEMO["Video-Aligned Demonstration Traces"]
+        POLICY["Optional SOPs + Policies"]
         TOOLS["Tool Registry<br/>JSON Schemas + API Contracts"]
         GT["Ground-Truth DAGs<br/>Expected Outcomes"]
         SPLITS["Training + Held-Out Cases"]
     end
 
     WORLD --> ENT
-    WORLD --> POLICY
+    WORLD --> VID
     WORLD --> DEMO
+    WORLD --> POLICY
     WORLD --> TOOLS
     WORLD --> GT
     WORLD --> SPLITS
@@ -140,9 +144,9 @@ flowchart TB
 
     subgraph TRAIN["C · OFFLINE MODEL SPECIALIZATION · NVIDIA BREV"]
         direction TB
-        PAIRS["Dataset Builder<br/>Procedure Package → Target DAG"]
+        PAIRS["Dataset Builder<br/>(video + aligned trace) → Target DAG"]
         SFT["NeMo AutoModel<br/>LoRA Supervised Fine-Tuning"]
-        BASE["NVIDIA Nemotron Nano 9B v2<br/>Base Checkpoint"]
+        BASE["NVIDIA Nemotron Nano 12B v2 VL<br/>Base Checkpoint"]
         ADAPTER["Trained LoRA Adapter"]
         MERGE["Merge / Export for Serving<br/>Validate Compatibility"]
 
@@ -181,7 +185,7 @@ flowchart TB
     subgraph UI["E · TEACHONCE WEB APPLICATION · MVP SCREENS"]
         direction LR
         OVERVIEW["Overview<br/>Operational Dashboard"]
-        STUDIO["Teach Studio<br/>Warranty SOP + Demos"]
+        STUDIO["Teach Studio<br/>Expert video + aligned trace"]
         EDITOR["Workflow Editor<br/>React Flow DAG"]
         EXEC_UI["Executions<br/>Run + Step Timeline"]
         EXTRA["Integrations<br/>Tool registry list"]
@@ -193,7 +197,7 @@ flowchart TB
 
     subgraph COMPILER["F · PROCEDURE-TO-DAG COMPILATION"]
         direction TB
-        PKG["Procedure Package Builder<br/>Goal + SOP + Policy<br/>Demo + Tool Schemas"]
+        PKG["Procedure Package Builder<br/>Video + aligned trace<br/>[+ optional SOP] + tools"]
         API["FastAPI<br/>POST /workflows/generate"]
         VALID["DAG Validator<br/>Schema · Acyclicity<br/>Bindings · Branches"]
         DAG[("Validated Executable DAG<br/>Stored Workflow Artifact")]
@@ -295,13 +299,13 @@ flowchart TB
 ### A–B · Canonical enterprise world
 
 - One deterministic generator (fixed seed) produces versioned `data/generated/`.  
-- **MVP:** warranty-only entities, one SOP/policy/demo, one ground-truth DAG, two demo cases, small train JSONL.  
+- **MVP:** warranty-only entities, **expert video + aligned trace**, optional SOP/policy, one ground-truth DAG, two demo cases, small train JSONL.  
 - **Immutable** after freeze; checksummed via `manifest.json`.  
 
 ### C · Offline model specialization (Brev)
 
-- Builds instruction pairs: Procedure Package → target DAG.  
-- LoRA SFT on Nano 9B via NeMo AutoModel.  
+- Builds instruction pairs: (video + aligned trace [+ optional SOP] + tools) → target DAG.  
+- LoRA / PEFT SFT on Nano 12B VL (video→DAG) via NeMo AutoModel.  
 - Exports adapter, **merges** for vLLM-compatible artifact.  
 
 ### D · Model inference (Red Hat vLLM on Brev)
@@ -318,7 +322,7 @@ flowchart TB
 
 ### F · Procedure-to-DAG compilation
 
-- Assembles Procedure Package from canonical assets.  
+- Assembles Procedure Package from canonical assets (video id, aligned trace, optional SOP, tools).  
 - `POST /workflows/generate` → `nvidia_inference` → Brev Red Hat vLLM → validator → stored workflow.  
 - Invalid model output is rejected (optionally one repair retry via the **same** NVIDIA endpoint); never silently replaced with ground truth in demo; never falls over to a third-party LLM.  
 
@@ -358,7 +362,7 @@ flowchart TB
 
 ### Flow A — Teach → Generate
 
-Teach Studio loads Procedure Package → Generate → NVIDIA gateway → Brev Red Hat vLLM compiles DAG → validator → Workflow Editor.
+Teach Studio loads expert video + Procedure Package (aligned trace [+ optional SOP]) → Generate → NVIDIA gateway → Brev Red Hat vLLM compiles DAG → validator → Workflow Editor.
 
 ### Flow B — Execute (active warranty)
 
@@ -374,7 +378,7 @@ Same DAG + expired-warranty case → `RECORD_PAID_OPTIONS` + ticket update (no `
 
 ```text
 ┌──────────────── NVIDIA Brev (1× A100 80GB) ────────────────┐
-│  Red Hat AI Inference Server (merged Nano 9B)                 │
+│  Red Hat AI Inference Server (Nano 12B VL, video-capable)     │
 │  Optional: FastAPI + SQLite on same VM for demo simplicity    │
 └───────────────────────────────────────────────────────────────┘
          ▲
@@ -424,3 +428,5 @@ Detailed schemas, endpoint contracts, and module boundaries: [`lld.md`](lld.md).
 | 2026-10-17 | Initial HLD with full subsystem diagram and locked Brev / Nano 9B / Red Hat vLLM choices |
 | 2026-10-17 | Enforced Mandatory NVIDIA-only AI policy across architecture and deployment notes |
 | 2026-10-17 | MVP cut: warranty-only A–C screens; drop Test Lab / Review Queue / multi-family scope |
+| 2026-10-17 | Product pivot: primary teach path = expert video → aligned trace → Nemotron DAG |
+| 2026-10-17 | Model lock: Nano **12B v2 VL** (video in, 12.6B) replaces text-only Nano 9B |

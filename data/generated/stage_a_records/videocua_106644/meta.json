@@ -1,0 +1,10 @@
+{
+  "video_id": "videocua_106644",
+  "source_dataset": "ServiceNow/VideoCUA",
+  "source_record_id": "106644",
+  "goal": "Open Conky in terminal",
+  "video_path": "/Users/kedarvaidya/Downloads/NvidiaHack/data/raw/videocua/Conky/task_00_106644/video/video.mp4",
+  "video_exists": true,
+  "source_json": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/videocua_106644/source.json",
+  "video_local": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/videocua_106644/video.mp4"
+}

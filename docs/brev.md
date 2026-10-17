@@ -85,9 +85,25 @@ Wired with `--model-type vllm_model` → `http://127.0.0.1:8000/v1`.
 - `--model-type vllm_model`
 - **Zero** OpenAI / Anthropic / Gemini / OpenRouter keys used
 
+## NeMo-RL / W&B smoke
+
+| Item | Value |
+|------|--------|
+| Driver | 565.57.01 → **CUDA 12.7 max** |
+| Official NeMo-RL | `main`/v0.5+ need torch **cu128+** → fails on this image |
+| Cloned (reference) | `/data/nemo-rl` @ **v0.5.0** |
+| Runnable smoke | `scripts/run_grpo_smoke_wandb.sh` (HF GRPO-style, cu124) |
+| Live view | `smoke-test/phase0_integration.ipynb` §4 + W&B |
+
+```bash
+export WANDB_API_KEY=…   # https://wandb.ai/authorize
+brev exec teachonce-gpu 'bash ~/teachonce/scripts/run_grpo_smoke_wandb.sh'
+```
+
 ## Unresolved / notes
 
 - Prefer `uv pip install vllm --torch-backend=cu124` on driver CUDA 12.x
 - Pin `transformers<5` with this vLLM build
 - Ensure `~/.local/bin` on `PATH` before `gym env start` (needs `uv`)
 - Eval input must be **mcqa** `example.jsonl` under site-packages (not nested rglob)
+- Full NeMo-RL: need newer Brev driver / NGC container, then `run_nemo_rl_smoke.sh`

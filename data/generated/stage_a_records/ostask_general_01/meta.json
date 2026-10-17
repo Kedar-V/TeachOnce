@@ -1,0 +1,10 @@
+{
+  "video_id": "ostask_general_01",
+  "source_dataset": "open-world-agents/OSTask-demo",
+  "source_record_id": "general_01",
+  "goal": "Hey, my Chromium browser seems to have frozen and I can't get it to close normally. Can you help me force quit the application?",
+  "video_path": "/Users/kedarvaidya/Downloads/NvidiaHack/data/raw/ostask-demo/general_01.mkv",
+  "video_exists": true,
+  "source_json": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/ostask_general_01/source.json",
+  "video_local": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/ostask_general_01/general_01.mkv"
+}

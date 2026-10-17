@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://teachonce.local/schema/train_row.schema.json",
+  "title": "TeachOnce training JSONL row (LLD §3.3)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "family", "split", "input", "target_dag"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "family": { "const": "warranty_resolution" },
+    "split": { "enum": ["train", "val", "test"] },
+    "path_type": { "type": ["string", "null"], "enum": ["active", "expired", null] },
+    "source_dataset": { "type": "string" },
+    "source_record_id": { "type": ["string", "null"] },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal", "video_id", "demonstrations", "tools_ref"],
+      "properties": {
+        "goal": { "type": "string" },
+        "video_id": { "type": "string" },
+        "video_path": { "type": ["string", "null"] },
+        "sop": { "type": ["string", "null"] },
+        "policies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "demonstrations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["video_id", "events"],
+            "properties": {
+              "video_id": { "type": "string" },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["op"],
+                  "properties": {
+                    "t_start": { "type": ["number", "null"] },
+                    "t_end": { "type": ["number", "null"] },
+                    "op": {
+                      "enum": [
+                        "LOOKUP_CUSTOMER",
+                        "GET_TICKET",
+                        "UPDATE_TICKET",
+                        "GET_DEVICE",
+                        "CHECK_WARRANTY",
+                        "GET_DIAGNOSTICS",
+                        "CREATE_REPAIR",
+                        "RECORD_PAID_OPTIONS"
+                      ]
+                    },
+                    "label": { "type": ["string", "null"] },
+                    "observed": { "type": ["object", "null"] }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "tools_ref": { "const": "mvp_registry_v1" },
+        "tools": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    },
+    "target_dag": { "$ref": "dag.schema.json" }
+  }
+}

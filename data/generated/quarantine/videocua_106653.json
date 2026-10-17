@@ -1,0 +1,12 @@
+{
+  "ok": false,
+  "video_id": "videocua_106653",
+  "source_dataset": "ServiceNow/VideoCUA",
+  "source_record_id": "106653",
+  "goal": "Check the Conky version installed on your system (conky --version).",
+  "video_path": "/Users/kedarvaidya/Downloads/NvidiaHack/data/raw/videocua/Conky/task_01_106653/video/video.mp4",
+  "errors": [
+    "mapped only 0 ops (need \u22652); quarantine"
+  ],
+  "ops": []
+}

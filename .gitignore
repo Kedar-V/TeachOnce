@@ -9,3 +9,7 @@ results/
 *.log
 .cache/
 .ipynb_checkpoints/
+data/raw/
+*.mkv
+*.mcap
+

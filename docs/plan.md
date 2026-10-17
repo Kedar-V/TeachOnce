@@ -6,7 +6,7 @@
 **Deadline:** October 18, 2026, 11:00 AM local event time  
 **Principle:** Build the smallest real system that convincingly demonstrates the complete TeachOnce user story.
 
-**MVP lens:** Ship Flows A–C only. Warranty process only. Happy path only. No multi-family generalization, no Test Lab, no Review Queue, no edge-case recovery. If it is not required to demo Teach → Generate → Execute (active) → Execute (expired) on one DAG, it is out.
+**MVP lens:** Ship Flows A–C only. Warranty process only. Happy path only. **Primary teach input = expert screen-recording video → executable DAG.** No multi-family generalization, no Test Lab, no Review Queue, no edge-case recovery. If it is not required to demo Teach (video) → Generate → Execute (active) → Execute (expired) on one DAG, it is out.
 
 This document is the project’s canonical plan. Update it when architecture or priorities change. Do not treat chat history as the source of truth.
 
@@ -15,6 +15,8 @@ This document is the project’s canonical plan. Update it when architecture or 
 | Doc | Role |
 |-----|------|
 | [`implementation.md`](implementation.md) | **Living implementation tracker — maintain status here** |
+| [`phases/README.md`](phases/README.md) | **Phase plan index (0–4)** |
+| [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) | Phase 1 Workflow IR dataset plan |
 | [`implementation-stages.md`](implementation-stages.md) | Detailed Phase 0+ how-to (commands) |
 | [`hld.md`](hld.md) | High-level architecture, subsystem diagram, deployment topology |
 | [`lld.md`](lld.md) | Schemas, APIs, executor algorithm, sequence diagram, module map |
@@ -33,7 +35,7 @@ This applies to the entire application and development pipeline, including synth
 
 | Role | Approved component |
 |------|--------------------|
-| Generative model | NVIDIA Nemotron Nano 9B v2 (`nvidia/NVIDIA-Nemotron-Nano-9B-v2`) |
+| Generative model | NVIDIA Nemotron Nano 12B v2 VL (`nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16`) — video+image+text, **12.6B** &lt; 33B cap |
 | GPU compute | NVIDIA Brev |
 | Training instance | 1× NVIDIA A100 80GB |
 | Fine-tuning | NVIDIA NeMo AutoModel (LoRA) |
@@ -114,21 +116,27 @@ TeachOnce is an AI-powered enterprise workflow-learning and automation platform.
 
 ### Problem
 
-Enterprises have thousands of operational processes that live in SOP documents, policy manuals, employee knowledge, expert demonstrations, and internal systems. Automating them usually means engineers manually translating process knowledge into workflow logic, API integrations, conditional branches, and exception rules — expensive, slow, and hard to maintain.
+Enterprises have thousands of operational processes that live in people’s heads and in **how experts actually work** — screen recordings, click-paths through CRM/warranty tools — plus SOP docs. Automating them usually means engineers manually watching demos and rewriting steps into workflow logic, API integrations, and branches — expensive, slow, and hard to maintain.
 
 ### Solution
 
-A business user teaches an AI a workflow using existing procedural knowledge and expert demonstrations. A **fine-tuned small language model** compiles that knowledge into an **executable workflow DAG**. The platform runs that DAG through connected enterprise tools and verifies outcomes.
+A business user teaches TeachOnce by uploading an **expert screen-recording video** of the process (optional SOP/policy alongside). The platform turns that into an **executable workflow DAG** over a **tool registry** (enterprise APIs / modules — not a generic chatbot). The DAG runs against connected tools and verifies outcomes.
 
-We are **not** building a generic chatbot.
+**Core product claim:** **video → DAG.**
 
-We are building a **procedure-to-executable-workflow compiler**, supported by a workflow execution and monitoring platform. The UX should feel like polished enterprise SaaS.
+Hackathon-pragmatic pipeline (still NVIDIA-only):
+
+1. **Ingest** — expert screen-recording video (primary) + tool schemas (+ optional SOP/policy).  
+2. **Compile** — fine-tuned **Nemotron Nano 12B v2 VL** takes **video (+ text context)** → **executable DAG JSON**. Gold video-aligned traces remain for training/eval labels, not a required second model.  
+3. **Execute** — deterministic executor calls registry tools.
+
+We are building a **video-taught procedure → executable workflow compiler**, with a workflow execution and monitoring platform. UX should feel like polished enterprise SaaS.
 
 ### Differentiation
 
-> An organization can teach TeachOnce how a business process works, and TeachOnce converts that knowledge into an executable, inspectable, reusable automation.
+> An organization records how a process is done once; TeachOnce converts that recording into an executable, inspectable, reusable automation.
 
-The rest of the platform is largely deterministic software. One fine-tuned generative model compiles procedures → DAGs.
+The rest of the platform is largely deterministic software. Generative AI owns **video (+ tools) → DAG** via one Nemotron VL model.
 
 ---
 
@@ -170,14 +178,14 @@ Complex edge cases, held-out multi-family eval, Test Lab, Review Queue, autonomo
 
 In Teach Studio, provide (from the canonical dataset):
 
-- Warranty resolution SOP  
-- Applicable policies  
-- Expert demonstration(s)  
-- Available tool / API definitions  
+- **Expert screen-recording video** of warranty resolution (primary)  
+- Structured demonstration trace **aligned to that video** (events the model compiles from)  
+- Optional: warranty SOP + applicable policies (supporting context)  
+- Available tool / API definitions (registry)  
 
 ### Step 2 — Generate
 
-Click **Generate Workflow**. Fine-tuned Nemotron receives a Procedure Package and returns executable DAG JSON (actions, decisions, branches, tool bindings, parameter mappings, dependencies, terminal outcomes). Frontend visualizes it in an interactive editor.
+Click **Generate Workflow**. Fine-tuned Nemotron VL receives a Procedure Package (**expert video** + optional SOP/policy + tools) and returns executable DAG JSON (actions, decisions, branches, tool bindings, parameter mappings, dependencies, terminal outcomes). Frontend visualizes it in an interactive editor; source video stays visible in Teach Studio.
 
 ### Step 3 — Review and Deploy
 
@@ -204,9 +212,9 @@ Show visited nodes, branch taken, tool I/O, success/failure, business artifacts 
 
 ## 4. Three essential demo flows
 
-### Flow A — Teach an enterprise process
+### Flow A — Teach an enterprise process (video → DAG)
 
-SOP + policy + expert demo → fine-tuned Nemotron → valid executable DAG → interactive visualization.
+Expert **screen-recording video** (+ optional SOP/policy + tools) → fine-tuned Nemotron VL → valid executable DAG → interactive visualization.
 
 ### Flow B — Execute a support workflow
 
@@ -243,17 +251,20 @@ data/
     tools/
       registry.json
     workflows/
-      ground_truth.json
+      ground_truth.json       # executable DAG (API/tool ops)
     demonstrations/
-      traces.json
+      videos/                # expert screen recordings (primary teach asset)
+        warranty_active.mp4  # (or short clips; store large binaries outside git if needed)
+      traces.json            # structured events ALIGNED to those videos
+      alignments.json        # optional: video_ts ↔ event_id
     documents/
-      warranty_sop.md
+      warranty_sop.md        # optional supporting SOP
       warranty_policy.md
     cases/
       demo.json              # active_warranty + expired_warranty cases for Flows B–C
     training/
-      train.jsonl            # warranty-topology paraphrases / mild variants only
-      validation.jsonl       # small holdout of same family (schema checks)
+      train.jsonl            # (video_id | trace | optional sop) → gold DAG; paraphrases of wording/trace
+      validation.jsonl
 ```
 
 Folder names may adjust for repo convenience; the conceptual requirement cannot. **MVP size target:** enough entities for a believable UI (~20–50 customers/devices), **2 demo cases**, and a small train set focused on the one warranty DAG topology (paraphrase SOP/demo wording; do not invent other process families).
@@ -289,18 +300,28 @@ Isolate tests so runs do not corrupt each other unintentionally.
 
 ## 6. Training data and ground truth (MVP)
 
-**Objective:** `(warranty SOP + policies + expert demos + tool defs) → one executable warranty DAG topology`
+**Objective:** `(screen video [+ optional SOP/policy] + tool defs) → executable DAG` — demo topology = warranty over our tool registry.
 
-**MVP training goal:** Reliable JSON DAG for the Northstar warranty procedure. Enough paraphrase/mild structural variants that the model is compiling, not rote-copying one string. **Not** a multi-SOP research dataset.
+**Volume constraint:** we cannot record a large in-house corpus. **Two-stage train:**
+
+1. **Stage A (domain adapt / “pretrain”)** — open screen-recording corpora (VideoCUA, OpenCUA/AgentNet, VideoGUI; Mind2Web raw secondary), filtered + remapped → IR/DAG.  
+2. **Stage B (product SFT)** — **50** Northstar videos across **warranty / parts / escalate** (multiple DAG families). Recipe: [`prompts/synthetic-finetune-videos.md`](prompts/synthetic-finetune-videos.md).
+
+Detail: [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) §1.5.
+
+**MVP training goal:** Nano 12B VL learns video→DAG. Public data teaches structure-from-video; 10–15 self videos teach **our** tools/topology for the demo. Never treat raw clicks as product DAG nodes.
 
 | Include | Exclude |
 |---------|---------|
-| One ground-truth warranty DAG (active + expired branches) | Other process families (refund, delivery, escalation, …) |
-| Paraphrased SOP / demo / policy text → same target topology | Large held-out families |
-| Mild wording variants on tools/bindings | HPO, benchmark suites, SOTA claims |
-| Tiny validation split for parse + schema pass rate | Memorizing case IDs / customer rows |
+| Open desktop/web screen videos + action logs (filtered subset) | Downloading entire VideoCUA/AgentNet unfiltered |
+| Mapped IR/DAG labels over our schema/tools | Using RPA click coords as TeachOnce DAG GT |
+| One ground-truth warranty DAG (active + expired branches) | Treating public labels as warranty CRM truth |
+| Optional SOP/policy as secondary text | Third-party vision/LLM teacher APIs |
+| Tiny val split: schema/parse pass rate | HPO, SOTA claims, AITW-as-primary |
 
-**Ground-truth DAGs come from the deterministic generator.** Prefer deterministic templates for text variation; any NL paraphrase uses the NVIDIA-only gateway — never an external teacher model.
+**Executable DAG gold for the demo** comes from our deterministic generator + tool registry. Public action logs are evidence for mapping, not drop-in GT. NL paraphrase only via NVIDIA-only gateway.
+
+**Consistency choke point:** every source row passes `scripts/tool_registry_adapter.py` so train DAGs only use MVP registry ops (`CHECK_WARRANTY`, …) — never raw clicks. See [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) §1.5 adapter + [`lld.md`](lld.md) §5.3.
 
 - Validate every training example against the DAG schema  
 - Demo generate must not return `ground_truth.json` disguised as model output  
@@ -332,59 +353,55 @@ CPU app services may run on the same Brev VM or another reachable machine; prefe
 
 | Field | Value |
 |-------|--------|
-| Name | NVIDIA Nemotron Nano 9B v2 |
-| Hugging Face ID | `nvidia/NVIDIA-Nemotron-Nano-9B-v2` |
-| Architecture | Nemotron-H hybrid (Mamba-2 + MLP + few attention layers) |
-| Parameters | **9B** (within 33B deployed generative cap) |
-| Modality | Text-to-text |
-| Task | Compile SOP + demos + policies + tool schemas → executable DAG JSON |
+| Name | NVIDIA Nemotron Nano 12B v2 VL |
+| Hugging Face ID | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` (FP8: `…-VL-FP8` if VRAM tight) |
+| Architecture | Vision encoder (CRadioV2-H) + Nemotron Nano 12B v2 hybrid LLM |
+| Parameters | **12.6B** (within 33B deployed generative cap) |
+| Modality | **Video + image + text → text** (MP4/etc; ~2 FPS, 8–128 frames) |
+| Task | Compile **expert video** (+ optional SOP/policies + tool schemas) → executable DAG JSON |
 
-Hackathon rule: count **full** model weights toward the 33B cap (including MoE total weights). Verify rules before any second generative model is introduced. **Do not deploy a second generative model** without checking the budget.
+Hackathon rule: count **full** model weights toward the 33B cap (including MoE total weights). **One** generative model only — this VL checkpoint. Do not also deploy Nano 9B text unless the VL path is blocked.
 
 ### 7.3 Fine-tuning configuration
 
 | Item | Value |
 |------|--------|
-| Framework | NVIDIA NeMo AutoModel |
-| Method | LoRA supervised fine-tuning |
-| Recipe baseline | `nemotron_nano_9b_squad_peft.yaml` ([NeMo Automodel](https://github.com/NVIDIA-NeMo/Automodel/blob/main/examples/llm_finetune/nemotron/nemotron_nano_9b_squad_peft.yaml)) |
-| Dataset | Replace SQuAD with TeachOnce canonical `training/*.jsonl` |
-| LoRA rank | 8 (initial) |
-| LoRA alpha | 32 (initial) |
-| Precision | BF16 where supported |
-| Mamba note | Recipe excludes `*.out_proj` — custom kernels |
-
-These hyperparameters are starting points, not validated optima. Prefer short smoke runs before longer training. No large HPO sweeps.
+| Framework | NVIDIA NeMo AutoModel (or documented VL SFT path for this checkpoint) |
+| Method | LoRA / PEFT supervised fine-tuning on video→DAG pairs |
+| Recipe baseline | Adapt Automodel Nemotron PEFT examples; **pin VL multimodal loader** (not text-only `nano_9b_squad`) |
+| Dataset | TeachOnce `training/*.jsonl` with `video` path/URI + text context → gold DAG |
+| Precision | BF16 (or FP8 serve checkpoint) |
+| Note | Short smoke before long train; no HPO sweeps |
 
 ### 7.4 Inference serving (mandatory)
 
-Use **Red Hat AI Inference Server / Red Hat’s vLLM distribution** hosting **our** Nemotron on Brev. See **Mandatory NVIDIA-only AI infrastructure policy** above.
+Use **Red Hat AI Inference Server / Red Hat’s vLLM distribution** hosting **our** Nemotron VL on Brev. See **Mandatory NVIDIA-only AI infrastructure policy** above.
 
-- Load Nano 9B v2 + fine-tuned adapter in the **supported** form  
-- **Merge LoRA before serve:** official Automodel CI sets `vllm_merge_lora: true` because vLLM cannot serve LoRA on fused Mamba layers  
+- Serve with video support, e.g. `vllm serve nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16 --trust-remote-code --dtype bfloat16 --video-pruning-rate 0` (or Red Hat equivalent)  
+- If LoRA used: merge / export in the form vLLM accepts for this VL arch  
 - Expose an **OpenAI-compatible protocol** on our self-hosted URL only (`NVIDIA_VLLM_BASE_URL`) — not the public OpenAI API  
-- Accept Procedure Package prompts; emit **DAG JSON only**  
-- MVP serve flags: disable / minimize thinking-budget if the model emits reasoning by default; prefer JSON / constrained decoding when the Red Hat image supports it; otherwise prompt + strip fences + validate  
+- Accept Procedure Package **including video**; emit **DAG JSON only**  
+- MVP serve flags: disable / minimize thinking-budget if on by default; prefer JSON / constrained decoding when supported; else prompt + strip fences + validate  
 - FastAPI calls only through `services/nvidia_inference.py`; record `latency_ms`  
 - Missing/misconfigured endpoint → hard fail (no third-party fallback)  
 - **Demo operator note:** if live generate flakes once, retry once; keep the last validated model DAG in the UI/session so Flows B–C can still run — never silently load `ground_truth.json` as if it were a model response
 
-Do **not** silently substitute another inference framework or provider. On Red Hat vLLM / Nemotron compatibility failure: identify the blocker and propose the smallest NVIDIA-stack fix (image pin, merge path, flags).
+Do **not** silently substitute another inference framework or provider. On Red Hat vLLM / Nemotron VL compatibility failure: identify the blocker and propose the smallest NVIDIA-stack fix (image pin, merge path, flags, FP8 checkpoint).
 
 ### 7.5 Model responsibility boundary
 
-**Model does:** compile procedural knowledge → typed executable DAG JSON.
+**Model does (MVP compile):** take expert **video** (+ optional SOP/policy) + tool schemas → typed executable DAG JSON.
 
-**Model does not:** mutate DBs directly, manage credentials, execute business ops, invent tool outcomes, decide success without real tool results, or invent dashboard stats.
+**Model does not:** mutate DBs directly, manage credentials, execute business ops, invent tool outcomes, decide success without real tool results, or invent dashboard stats. Gold aligned traces are for **training/eval**, not a second generative stage.
 
 ### 7.6 Inference-time Procedure Package
 
 Provide explicitly at generate time:
 
 - Workflow goal  
-- SOP content  
-- Policy rules  
-- Demonstration trace(s)  
+- **Source video** (id / URI / bytes) — **primary model input**  
+- Optional gold/aligned demonstration trace(s) for train/eval (not required at demo generate)  
+- Optional SOP content + policy rules  
 - Tool schemas  
 - Source identifiers  
 
@@ -403,7 +420,7 @@ If A100 80GB is unavailable: report blocker; recommend equivalent **≥80 GB VRA
 
 ### 7.8 AI infrastructure definition of done
 
-1. Nano 9B v2 fine-tuned on canonical data using Brev  
+1. Nano 12B v2 VL fine-tuned on canonical video→DAG data using Brev  
 2. Served through Red Hat vLLM  
 3. Teach Studio sends a real generate request  
 4. Model returns an actual DAG  
@@ -517,7 +534,9 @@ Do not fabricate SOTA gains, real customer adoption, production integrations, or
 - Test Lab / Review Queue / approval routing  
 - Multi-family training / research eval suites  
 - Fancy failure recovery, retries beyond one compile retry  
-- General-purpose multi-agent systems, RAG, video/browser capture  
+- General-purpose multi-agent systems, RAG  
+- **Open-web RPA** / arbitrary website click graphs / Mind2Web-style agents (our video is a **known Northstar process**, mapped to the **tool registry**)  
+- End-to-end raw-pixels→DAG in one model without a structured trace (stretch only)  
 - Production OAuth/SSO, multi-tenancy, real CRM/ITSM  
 - Distributed orchestration / K8s / production hardening  
 - Non-NVIDIA hosted LLMs (see mandatory policy)
@@ -527,10 +546,10 @@ Do not fabricate SOTA gains, real customer adoption, production integrations, or
 ## 14. Application architecture
 
 ```text
-Teach Studio
+Teach Studio (expert video + aligned trace [+ optional SOP])
   → FastAPI POST /workflows/generate
-  → Red Hat vLLM (fine-tuned Nano 9B on Brev)
-  → JSON DAG
+  → Red Hat vLLM (fine-tuned Nano 12B VL on Brev)   # compile: video → DAG
+  → JSON DAG (tool-registry actions)
   → schema validation
   → Workflow Editor
   → deterministic executor
@@ -584,7 +603,7 @@ NvidiaHack/
   ml/                       # train/eval only against NVIDIA / Brev stack
 
     recipes/
-      nemotron_nano_9b_teachonce_peft.yaml
+      nemotron_nano_12b_vl_teachonce_peft.yaml
     prepare_automodel_dataset.py
     merge_lora.py
     eval_compiler.py
@@ -622,7 +641,7 @@ Dev-only ground-truth generate flag may exist for executor testing **before** th
 |-------|--------|------|
 | **0** | Brev + **vLLM** + **NeMo Gym** (small instruct model; Gym → local vLLM only; see [`vLLM/brevsetup.pdf`](vLLM/brevsetup.pdf)) | Phase 0 checklist in implementation-stages |
 | **1** | Tiny warranty dataset + DAG executor + FastAPI stubs | Active + expired on ground-truth DAG |
-| **2** | Nemotron Nano 9B LoRA + serve + `nvidia_inference` | Live `/workflows/generate` |
+| **2** | Nemotron Nano 12B VL LoRA + serve + `nvidia_inference` | Live `/workflows/generate` |
 | **3** | TeachOnce React UI (MVP screens) | Flows A–B |
 | **4** | Demo polish (Flow C, script, NVIDIA-only audit) | DoD §17 |
 
@@ -687,3 +706,8 @@ Demonstrate without disconnected staged data:
 | 2026-10-17 | Pointed §15/§18 at `implementation-stages.md`; Phase 0 = vLLM + NeMo Gym before Nemotron |
 | 2026-10-17 | MVP cut: warranty-only A–C; drop multi-family training, Test Lab, Review Queue, edge-case scope |
 | 2026-10-17 | Added `implementation.md` as living tracker |
+| 2026-10-17 | Added `docs/phases/` phase-wise plans; Phase 1 dataset IR |
+| 2026-10-17 | **Pivot:** primary teach path = expert **video → (aligned trace) → DAG**; SOP secondary; open-web RPA still out |
+| 2026-10-17 | **Model lock:** `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` (12.6B, video in) replaces text-only Nano 9B |
+| 2026-10-17 | Training volume = open screen-video corpora (VideoCUA/AgentNet/…); remap to our IR/DAG |
+| 2026-10-17 | Two-stage: public domain-adapt → SFT on **10–15** self-recorded warranty videos |

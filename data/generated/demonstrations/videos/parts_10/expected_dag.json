@@ -1,0 +1,176 @@
+{
+  "id": "WF-parts_10",
+  "name": "parts_fulfillment (backorder)",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "START"
+    },
+    {
+      "id": "a0_lookup_customer",
+      "type": "ACTION",
+      "label": "Lookup Customer",
+      "tool": "crm",
+      "op": "LOOKUP_CUSTOMER",
+      "inputs": {
+        "query": {
+          "ref": "$case.query"
+        }
+      }
+    },
+    {
+      "id": "a1_get_ticket",
+      "type": "ACTION",
+      "label": "Get Ticket",
+      "tool": "crm",
+      "op": "GET_TICKET",
+      "inputs": {
+        "ticket_id": {
+          "ref": "$case.ticket_id"
+        }
+      }
+    },
+    {
+      "id": "a2_get_device",
+      "type": "ACTION",
+      "label": "Get Device",
+      "tool": "device",
+      "op": "GET_DEVICE",
+      "inputs": {
+        "device_id": {
+          "ref": "$case.device_id"
+        }
+      }
+    },
+    {
+      "id": "a3_check_parts_stock",
+      "type": "ACTION",
+      "label": "Check Parts Stock",
+      "tool": "inventory",
+      "op": "CHECK_PARTS_STOCK",
+      "inputs": {
+        "part_sku": {
+          "ref": "$case.part_sku"
+        }
+      }
+    },
+    {
+      "id": "a4_update_ticket",
+      "type": "ACTION",
+      "label": "Update Ticket",
+      "tool": "crm",
+      "op": "UPDATE_TICKET",
+      "inputs": {
+        "ticket_id": {
+          "ref": "$case.ticket_id"
+        }
+      }
+    },
+    {
+      "id": "decide_stock",
+      "type": "DECISION",
+      "label": "Parts stock",
+      "branches": [
+        {
+          "name": "InStock"
+        },
+        {
+          "name": "Backorder"
+        }
+      ]
+    },
+    {
+      "id": "branch_instock",
+      "type": "ACTION",
+      "label": "Create Parts Shipment",
+      "tool": "shipping",
+      "op": "CREATE_PARTS_SHIPMENT",
+      "inputs": {
+        "part_sku": {
+          "ref": "$case.part_sku"
+        },
+        "ticket_id": {
+          "ref": "$case.ticket_id"
+        }
+      }
+    },
+    {
+      "id": "end_instock",
+      "type": "END",
+      "outcome": "SUCCEEDED"
+    },
+    {
+      "id": "branch_backorder",
+      "type": "ACTION",
+      "label": "Create Backorder",
+      "tool": "shipping",
+      "op": "CREATE_BACKORDER",
+      "inputs": {
+        "part_sku": {
+          "ref": "$case.part_sku"
+        },
+        "ticket_id": {
+          "ref": "$case.ticket_id"
+        }
+      }
+    },
+    {
+      "id": "end_backorder",
+      "type": "END",
+      "outcome": "SUCCEEDED"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "a0_lookup_customer",
+      "when": null
+    },
+    {
+      "from": "a0_lookup_customer",
+      "to": "a1_get_ticket",
+      "when": null
+    },
+    {
+      "from": "a1_get_ticket",
+      "to": "a2_get_device",
+      "when": null
+    },
+    {
+      "from": "a2_get_device",
+      "to": "a3_check_parts_stock",
+      "when": null
+    },
+    {
+      "from": "a3_check_parts_stock",
+      "to": "a4_update_ticket",
+      "when": null
+    },
+    {
+      "from": "a4_update_ticket",
+      "to": "decide_stock",
+      "when": null
+    },
+    {
+      "from": "decide_stock",
+      "to": "branch_instock",
+      "when": "InStock"
+    },
+    {
+      "from": "branch_instock",
+      "to": "end_instock",
+      "when": null
+    },
+    {
+      "from": "decide_stock",
+      "to": "branch_backorder",
+      "when": "Backorder"
+    },
+    {
+      "from": "branch_backorder",
+      "to": "end_backorder",
+      "when": null
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "video_id": "ostask_workflow_01",
+  "source_dataset": "open-world-agents/OSTask-demo",
+  "source_record_id": "workflow_01",
+  "goal": "Identify the customer's top three best-performing RAM products with 32 GB capacity and 6000 MHz speed that are available for shipment to South Korea. Take screenshots of all three selected products and create a PowerPoint slide that includes the screenshots and the current date.",
+  "video_path": "/Users/kedarvaidya/Downloads/NvidiaHack/data/raw/ostask-demo/workflow_01.mkv",
+  "video_exists": true,
+  "source_json": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/ostask_workflow_01/source.json",
+  "video_local": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/stage_a_records/ostask_workflow_01/workflow_01.mkv"
+}

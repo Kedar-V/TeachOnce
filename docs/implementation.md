@@ -3,16 +3,18 @@
 **Status:** Living document — update as work lands  
 **Deadline:** 2026-10-18 11:00 AM local  
 **Current phase:** `1` — Dataset + DAG runtime  
-**Last updated:** 2026-10-17 (Phase 0 done)  
+**Last updated:** 2026-10-17 (plans = video→DAG)  
 
 | Doc | Role |
 |-----|------|
 | **This file** | What we’re doing, what’s done, what’s next — **maintain here** |
+| [`phases/README.md`](phases/README.md) | **Phase plan index** |
+| [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) | **Phase 1 deep plan (current)** |
 | [`plan.md`](plan.md) | Product spec, NVIDIA-only policy, DoD |
-| [`implementation-stages.md`](implementation-stages.md) | Detailed Phase 0 how-to (commands, acceptance) |
+| [`implementation-stages.md`](implementation-stages.md) | Phase 0 command how-to |
 | [`hld.md`](hld.md) / [`lld.md`](lld.md) | Architecture and contracts |
 | [`vLLM/brevsetup.pdf`](vLLM/brevsetup.pdf) | Brev + vLLM handout |
-| [`brev.md`](brev.md) | Live VM facts *(create in Phase 0)* |
+| [`brev.md`](brev.md) | Live VM facts |
 
 ---
 
@@ -35,12 +37,12 @@ Do not start a later phase until the current phase acceptance section is fully c
 | Phase | Name | Status | Owner | Notes |
 |-------|------|--------|-------|-------|
 | 0 | Infra: Brev + vLLM + NeMo Gym | `done` | | Crusoe A100; vLLM+Gym+Mac tunnel green |
-| 1 | Dataset + DAG runtime | `not_started` | | Can start on laptop after 0.1 if needed |
+| 1 | Workflow IR dataset + Gym env | `not_started` | | See [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) |
 | 2 | Nemotron LoRA + serve | `not_started` | | Needs Phase 0 + train JSONL |
 | 3 | FastAPI + TeachOnce UI | `not_started` | | Wire to real generate when Phase 2 ready |
 | 4 | Demo polish (Flows A–C) | `not_started` | | |
 
-**MVP lens:** Warranty only. Flows A–C only. No Test Lab / Review Queue until A–C are solid.
+**MVP lens:** Warranty only. Flows A–C only. **Primary product = expert video → DAG** (aligned trace compile; optional SOP). No Test Lab / Review Queue until A–C are solid.
 
 **AI policy:** NVIDIA / Brev / local vLLM only. No OpenAI, Anthropic, Gemini, Cursor model APIs as backends. See [`plan.md`](plan.md).
 
@@ -48,9 +50,9 @@ Do not start a later phase until the current phase acceptance section is fully c
 
 ## Next up
 
-1. Phase 1: canonical warranty dataset + DAG runtime (CPU-ok).  
+1. Execute Phase 1 per [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md) (IR schema → expert video + aligned trace + warranty gold → corpus → Gym).  
 2. Keep Brev stopped when idle: `brev stop teachonce-gpu`.  
-3. Phase 2 later: Nemotron on same Brev habits.  
+3. Phase 2: Nemotron train/serve (not Phase 0 smoke Qwen) — [`phases/phase-2-nemotron.md`](phases/phase-2-nemotron.md).  
 
 ---
 
@@ -125,29 +127,31 @@ All checkboxes above green → set dashboard Phase 0 = `done`.
 
 ---
 
-## Phase 1 — Canonical dataset + DAG runtime
+## Phase 1 — Workflow IR dataset + NeMo Gym
 
-**Depends on:** Phase 0 preferred; CPU work can proceed once contracts are clear.
+**Full plan:** [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md)
 
-### Checklist
-- [ ] Generator + freeze `data/generated/` + `manifest.json` (warranty-only)
-- [ ] SOP, policy, demo, tool registry, ground-truth DAG, 2 cases, small train JSONL
-- [ ] Pydantic DAG schema + validator
-- [ ] SQLite seed + mock tools (`LOOKUP_CUSTOMER` … `CREATE_REPAIR` / paid path)
-- [ ] Executor: active warranty → repair; expired → paid path (ground-truth DAG)
-- [ ] FastAPI: cases, executions, admin reset
-- [ ] `ALLOW_GROUND_TRUTH_GENERATE` for executor tests only
+**Depends on:** Phase 0 done. CPU-ok on laptop.
 
-**Exit:** Two cases execute without the model.
+### Checklist (summary — detail in phase doc)
+- [ ] Workflow IR v1 schema (Pydantic + JSON Schema)
+- [ ] Warranty gold audited (unresolved missing-purchase flagged)
+- [ ] Generator + validators + quarantine + manifest
+- [ ] ~24–36 valid + ~8–12 labeled invalid across 4 families
+- [ ] `docs/source-coverage.md` from WONDERBREAD/Mind2Web/WebLINX inspect
+- [ ] NeMo Gym `teachonce_ir` baseline smoke (local vLLM only)
+- [ ] Docs sync; Nemotron (not Qwen) for product path
+
+**Exit:** Phase 1 acceptance in [`phases/phase-1-dataset.md`](phases/phase-1-dataset.md).
 
 ---
 
-## Phase 2 — Nemotron Nano 9B LoRA + serve
+## Phase 2 — Nemotron Nano 12B VL LoRA + serve
 
 **Depends on:** Phase 0 green + Phase 1 train JSONL.
 
 ### Checklist
-- [ ] Load `nvidia/NVIDIA-Nemotron-Nano-9B-v2` on Brev; one base inference
+- [ ] Load `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` on Brev; one **video** smoke inference
 - [ ] Short NeMo AutoModel LoRA smoke; save adapter
 - [ ] Merge LoRA for vLLM (`vllm_merge_lora` / Mamba constraint)
 - [ ] Full TeachOnce LoRA (one practical run)
@@ -215,7 +219,9 @@ All checkboxes above green → set dashboard Phase 0 = `done`.
 | 2026-10-17 | Mac NeMo Gym v0.7.0 (`~/teachonce/gym-venv`); NVIDIA-only `env.yaml`; bootstrap uses PyPI not git clone |
 | 2026-10-17 | Phase 0 smoke: Crusoe A100; vLLM chat OK; Gym mcqa×5 via `vllm_model` (mean/reward 0.4); `brev.md` filled |
 | 2026-10-17 | Phase 0 **done** — Mac `port-forward` models+chat OK; next = Phase 1 |
-| | |
+| 2026-10-17 | Added `docs/phases/*` phase plans; Phase 1 = Workflow IR dataset |
+| 2026-10-17 | Product pivot: plans/HLD/LLD = **expert video → DAG** (aligned-trace compile) |
+| 2026-10-17 | Model lock: Nano **12B v2 VL** (`…-VL-BF16`, 12.6B) for video input |
 
 ---
 

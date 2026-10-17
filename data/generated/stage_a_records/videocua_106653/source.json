@@ -1,0 +1,16 @@
+{
+  "task_id": 106653,
+  "task_instruction": "Check the Conky version installed on your system (conky --version).",
+  "platform": "Conky",
+  "action_log": [
+    {
+      "action_type": "MOVE_TO",
+      "timestamp": 13.34,
+      "action_params": {
+        "x": 414,
+        "y": 185
+      },
+      "groundcua_id": null
+    }
+  ]
+}

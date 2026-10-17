@@ -53,7 +53,7 @@ NvidiaHack/
     validate_dataset.py
     reset_runtime.py
   ml/
-    recipes/nemotron_nano_9b_teachonce_peft.yaml
+    recipes/nemotron_nano_12b_vl_teachonce_peft.yaml
     prepare_automodel_dataset.py
     merge_lora.py
     smoke_infer.py
@@ -146,16 +146,17 @@ NvidiaHack/
   "split": "train",
   "input": {
     "goal": "...",
+    "video_id": "warranty-expert-01",
     "sop": "...",
     "policies": ["..."],
-    "demonstrations": [{ "events": [] }],
+    "demonstrations": [{ "video_id": "warranty-expert-01", "events": [] }],
     "tools": [{ "name": "CHECK_WARRANTY", "input_schema": {}, "output_schema": {} }]
   },
   "target_dag": { "nodes": [], "edges": [] }
 }
 ```
 
-**MVP:** `family` is always `warranty_resolution`. Train/val are paraphrases of the same topology — not other process families. Do not build a multi-family split.
+**MVP:** `family` is always `warranty_resolution`. Primary teach signal = **expert video + aligned demonstration trace**; SOP/policy optional. Train/val paraphrase the same topology — not other process families. Do not build a multi-family split.
 
 ---
 
@@ -276,12 +277,35 @@ Invalid → HTTP 422 with structured error list; do not persist as active. Do no
 | `GET_DEVICE` | Device | Read |
 | `CHECK_WARRANTY` | Warranty | Read |
 | `GET_DIAGNOSTICS` | Diagnostics | Read |
-| `CREATE_REPAIR` | Repair | Insert repair order **(active path)** |
-| `RECORD_PAID_OPTIONS` | Repair | Write paid-path artifact **(expired path)** |
+| `CREATE_REPAIR` | Repair | Insert repair order **(warranty active)** |
+| `RECORD_PAID_OPTIONS` | Repair | Paid-path artifact **(warranty expired)** |
+| `CHECK_PARTS_STOCK` | Inventory | Read stock **(parts procedure)** |
+| `CREATE_PARTS_SHIPMENT` | Shipping | Ship spare **(in stock)** |
+| `CREATE_BACKORDER` | Shipping | Backorder **(out of stock)** |
+| `ASSESS_SEVERITY` | CRM | Read/classify **(escalate procedure)** |
+| `PAGE_ONCALL` | CRM | Page on-call **(P1)** |
+| `ASSIGN_L2_QUEUE` | CRM | Assign L2 **(standard)** |
 
 Handlers query/mutate SQLite only. Never invent rows that are not seeded or created by prior ops in the run.
 
 **Canonical Flow C outcome:** expired path calls `RECORD_PAID_OPTIONS` + `UPDATE_TICKET`; must **not** create a repair order.
+
+### 5.3 Dataset tool-registry adapter
+
+**Purpose:** Every train/eval DAG — Stage A public video corpora **and** Stage B self-shot — must use the **same tool-registry philosophy** before it hits JSONL.
+
+| Input | Output |
+|-------|--------|
+| Source steps (VideoCUA action_log, Mind2Web actions, self trace, …) | Canonical DAG (§4) with `ACTION.op` ∈ §5.2 only |
+
+**Module:** `scripts/tool_registry_adapter.py`
+
+- `map_step_to_op` / `steps_to_ops` — alias table → registry op; drop pure RPA  
+- `build_dag` — START → ACTIONs → optional warranty DECISION → END  
+- `validate_registry_dag` — allowlist ops, no click/xy nodes, service match  
+- `adapt_record` — `{ok, dag, ops, errors}`; `ok: false` → quarantine, not train  
+
+No second schema for public data. Ingest scripts **must** call this adapter (or fail closed).
 
 ---
 
@@ -318,7 +342,7 @@ Content-Type: `application/json`
 
 `GET /dataset/procedure-package/warranty`
 
-**Response:** Procedure Package for Teach Studio (goal, sop, policies, demonstrations, tools, source ids).
+**Response:** Procedure Package for Teach Studio (`video_id` / URI, goal, optional sop/policies, **video-aligned** demonstrations, tools, source ids).
 
 ### 7.2 Workflows
 
@@ -390,9 +414,9 @@ DB_PATH=./backend/runtime.db
 
 # Required — self-hosted NVIDIA stack on Brev (no public LLM defaults)
 NVIDIA_VLLM_BASE_URL=https://<brev-host>/v1
-NVIDIA_VLLM_MODEL=nvidia/NVIDIA-Nemotron-Nano-9B-v2   # or merged TeachOnce checkpoint id
+NVIDIA_VLLM_MODEL=nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16   # or merged TeachOnce VL checkpoint
 NVIDIA_VLLM_API_KEY=optional                          # only if our gateway requires it
-NVIDIA_ALLOWED_MODEL_IDS=nvidia/NVIDIA-Nemotron-Nano-9B-v2,teachonce-nemotron-nano-9b
+NVIDIA_ALLOWED_MODEL_IDS=nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16,teachonce-nemotron-nano-12b-vl
 NVIDIA_ALLOWED_INFERENCE_HOSTS=<brev-host>
 
 # Forbidden to set for AI: OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
@@ -408,9 +432,9 @@ Startup must validate `NVIDIA_VLLM_BASE_URL` host ∈ allowlist and model id ∈
 ### 8.1 Prompt shape *(MVP)*
 
 - **System:** Compile into executable DAG JSON matching schema X. **Output JSON only** (no markdown, no reasoning).  
-- **User:** Warranty Procedure Package + schema summary + tool list.  
+- **User:** Warranty Procedure Package (**expert video** + optional SOP/policy) + schema summary + tool list (multimodal: video + text).  
 
-Prefer JSON / constrained decoding if Red Hat vLLM supports it; else prompt + strip fences + validate. Pin thinking/budget off or minimal when serving Nano 9B v2 for generate.
+Prefer JSON / constrained decoding if Red Hat vLLM supports it; else prompt + strip fences + validate. Pin thinking/budget off or minimal when serving Nano 12B VL for generate. Pass **video** in the multimodal request (not text-only).
 
 ### 8.2 NVIDIA inference gateway (`services/nvidia_inference.py`)
 
@@ -498,7 +522,7 @@ sequenceDiagram
 
     User->>UI: Open Teach Studio
     UI->>API: Load available procedure package
-    API->>DB: Read SOP, policy, demo, tool schemas
+    API->>DB: Read video id, aligned demo trace, optional SOP/policy, tool schemas
     DB-->>UI: Display process evidence
 
     User->>UI: Generate Workflow
@@ -567,7 +591,7 @@ Visual reference: TeachOnce UI mock / `mock.mp4` (visual only) — do not redesi
 ### 12.1 Milestone 0 smoke
 
 1. Provision Brev 1× A100 80GB; record $/hr in `docs/brev.md`.  
-2. Load base Nano 9B; one completion.  
+2. Load base Nano 12B VL; one **video** completion smoke.  
 3. Short LoRA via Automodel recipe (tiny steps).  
 4. Save adapter → merge → Red Hat vLLM serve.  
 5. One OpenAI-compatible request returns text.  
@@ -634,3 +658,6 @@ Skip exhaustive validator unit matrices until A–C work.
 | 2026-10-17 | Initial LLD: modules, DAG schema, APIs, executor algorithm, sequence diagram, ML procedures |
 | 2026-10-17 | Enforced NVIDIA-only gateway (`nvidia_inference.py`, `NVIDIA_VLLM_BASE_URL`, allowlists, no third-party LLM fallbacks) |
 | 2026-10-17 | MVP cut: warranty A–C only; unify expired path; drop Test Lab; simplify predicates/errors/tests |
+| 2026-10-17 | Product pivot: Procedure Package / train JSONL centered on expert video + aligned trace → DAG |
+| 2026-10-17 | Model lock: `NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` (video in) |
+| 2026-10-17 | §5.3 dataset tool-registry adapter — unified DAG ops across all sources |

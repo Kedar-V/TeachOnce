@@ -1,0 +1,126 @@
+{
+  "completed": {
+    "warranty_0004": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0004/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272759.128505
+    },
+    "warranty_0005": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0005/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272759.2061372
+    },
+    "warranty_0001": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0001/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272759.264182
+    },
+    "warranty_0002": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0002/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272795.343116
+    },
+    "warranty_0003": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0003/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272795.53316
+    },
+    "warranty_0006": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0006/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272802.3547819
+    },
+    "warranty_0007": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0007/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272802.666504
+    },
+    "warranty_0008": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0008/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272808.802111
+    },
+    "warranty_0009": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0009/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272820.680789
+    },
+    "warranty_0012": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0012/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272820.828524
+    },
+    "warranty_0011": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0011/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272820.9220328
+    },
+    "warranty_0010": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0010/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272821.0053031
+    },
+    "warranty_0013": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0013/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272829.244489
+    },
+    "warranty_0015": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0015/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272829.627153
+    },
+    "warranty_0016": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0016/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272829.690059
+    },
+    "warranty_0014": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0014/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272829.7006478
+    },
+    "warranty_0017": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0017/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272837.6301792
+    },
+    "warranty_0020": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0020/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272837.9617012
+    },
+    "warranty_0019": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0019/video.mp4",
+      "path_type": "active",
+      "size_mb": 12.23,
+      "ts": 1792272838.118397
+    },
+    "warranty_0018": {
+      "video": "/Users/kedarvaidya/Downloads/NvidiaHack/data/generated/demonstrations/videos/warranty_0018/video.mp4",
+      "path_type": "expired",
+      "size_mb": 12.45,
+      "ts": 1792272838.186356
+    }
+  },
+  "failed": {},
+  "started_at": "2026-10-17T21:32:29Z"
+}

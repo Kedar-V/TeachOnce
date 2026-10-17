@@ -1,0 +1,87 @@
+{
+  "video_id": "parts_01",
+  "source_dataset": "teachonce_self_synthetic",
+  "generation_method": "agent_driven_northstar_console",
+  "procedure": "parts",
+  "family": "parts_fulfillment",
+  "split": "train",
+  "path_type": "in_stock",
+  "duration_sec": 29.83,
+  "fps": 24,
+  "resolution": "1280x720",
+  "goal": "Fulfill spare part for failed device when in stock",
+  "sop": null,
+  "case": {
+    "customer_id": "C-1042",
+    "device_id": "D-2021",
+    "ticket_id": "CS-48213",
+    "warranty_status": "ACTIVE",
+    "severity": "P2"
+  },
+  "ops": [
+    "LOOKUP_CUSTOMER",
+    "GET_TICKET",
+    "GET_DEVICE",
+    "CHECK_PARTS_STOCK",
+    "CREATE_PARTS_SHIPMENT",
+    "UPDATE_TICKET"
+  ],
+  "events": [
+    {
+      "t_start": 0.0,
+      "t_end": 4.21,
+      "op": "LOOKUP_CUSTOMER",
+      "label": "Lookup Customer",
+      "observed": {
+        "customer_id": "C-1042"
+      }
+    },
+    {
+      "t_start": 4.21,
+      "t_end": 8.42,
+      "op": "GET_TICKET",
+      "label": "Get Ticket",
+      "observed": {
+        "ticket_id": "CS-48213"
+      }
+    },
+    {
+      "t_start": 8.42,
+      "t_end": 12.63,
+      "op": "GET_DEVICE",
+      "label": "Get Device",
+      "observed": {
+        "device_id": "D-2021"
+      }
+    },
+    {
+      "t_start": 12.63,
+      "t_end": 16.84,
+      "op": "CHECK_PARTS_STOCK",
+      "label": "Check Parts Stock",
+      "observed": {
+        "stock": "IN_STOCK"
+      }
+    },
+    {
+      "t_start": 16.84,
+      "t_end": 21.04,
+      "op": "CREATE_PARTS_SHIPMENT",
+      "label": "Create Parts Shipment",
+      "observed": {}
+    },
+    {
+      "t_start": 21.04,
+      "t_end": 25.25,
+      "op": "UPDATE_TICKET",
+      "label": "Update Ticket",
+      "observed": {
+        "ticket_id": "CS-48213"
+      }
+    }
+  ],
+  "tools_ref": "mvp_registry_v1",
+  "console_url": "?procedure=parts&path=in_stock&hud=0",
+  "prompt_variant": "light",
+  "notes": "Recorded from northstar-console; done=True"
+}

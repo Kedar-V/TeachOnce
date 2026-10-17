@@ -1,0 +1,43 @@
+{
+  "task_id": 106644,
+  "task_instruction": "Open Conky in terminal",
+  "platform": "Conky",
+  "action_log": [
+    {
+      "action_type": "MOVE_TO",
+      "timestamp": 5.748,
+      "action_params": {
+        "x": 1225,
+        "y": 242
+      },
+      "groundcua_id": null
+    },
+    {
+      "action_type": "CLICK",
+      "timestamp": 5.748,
+      "action_params": {
+        "x": 1231,
+        "y": 246,
+        "text": "Left",
+        "numClicks": 1
+      },
+      "groundcua_id": "6ac70cc7c5f7b2cbfd7ea04e43ee40369b8b49d5fe6e315bf25a352d37d23176"
+    },
+    {
+      "action_type": "TYPING",
+      "timestamp": 7.292,
+      "action_params": {
+        "text": "conky"
+      },
+      "groundcua_id": "f472c44c37cd1abd476b142d25a557ecee6d1788cd42ec7a435d0a7ffc3f1e4d"
+    },
+    {
+      "action_type": "PRESS",
+      "timestamp": 12.93,
+      "action_params": {
+        "text": "enter"
+      },
+      "groundcua_id": "a5c0cc557018718e2ae07c14c5acf282e6665f7ba7e9e53e1f1af02cbf273361"
+    }
+  ]
+}
