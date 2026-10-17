@@ -1,0 +1,11 @@
+.env
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+smoke-test/.venv/
+env/
+results/
+*.log
+.cache/
+.ipynb_checkpoints/
