@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""GRPO on TeachOnce NeMo-RL GT (video→DAG) with W&B curves.
+"""GRPO on TeachOnce NeMo-RL GT (video→DAG) with W&B train/val curves + early stop.
 
-# ponytail: text+events proxy for video; batched generate (B prompts × G samples).
+# ponytail: text+events proxy; LM-only forward (VL needs pixel_values).
+# Slow path was max_new×G decode (~2min/step). Defaults cut that ~3×.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import random
 import re
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import torch
@@ -29,18 +31,27 @@ except ImportError:
     LoraConfig = None  # type: ignore
     get_peft_model = None  # type: ignore
 
-MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
-GT_PATH = Path(os.environ.get("GRPO_GT", str(ROOT / "data/generated/nemo_rl/gt.jsonl")))
-STEPS = int(os.environ.get("GRPO_STEPS", "25"))
-GROUP = int(os.environ.get("GRPO_GROUP", "4"))  # samples per prompt (batched via num_return_sequences)
-BATCH = int(os.environ.get("GRPO_BATCH", "4"))  # prompts per optimizer step
-MAX_NEW = int(os.environ.get("GRPO_MAX_NEW", "256"))
+MODEL = os.environ.get("GRPO_MODEL", "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16")
+GT_PATH = Path(os.environ.get("GRPO_GT", str(ROOT / "data/generated/nemo_rl/gt_train_balanced50.jsonl")))
+HOLDOUT_PATH = Path(
+    os.environ.get("GRPO_HOLDOUT", str(ROOT / "data/generated/nemo_rl/gt_holdout_balanced24.jsonl"))
+)
+STEPS = int(os.environ.get("GRPO_STEPS", "40"))
+GROUP = int(os.environ.get("GRPO_GROUP", "4"))
+BATCH = int(os.environ.get("GRPO_BATCH", "1"))
+MAX_NEW = int(os.environ.get("GRPO_MAX_NEW", "256"))  # was 512 — main speed lever
 MAX_SAMPLES = int(os.environ.get("GRPO_MAX_SAMPLES", "50"))
 LR = float(os.environ.get("GRPO_LR", "2e-5"))
 SEED = int(os.environ.get("GRPO_SEED", "42"))
 KL_COEF = float(os.environ.get("GRPO_KL_COEF", "0.02"))
 USE_LORA = os.environ.get("GRPO_LORA", "1") not in ("0", "false", "False")
-CKPT_DIR = Path(os.environ.get("GRPO_CKPT", str(ROOT / "checkpoints/grpo_dag")))
+CKPT_DIR = Path(os.environ.get("GRPO_CKPT", str(ROOT / "checkpoints/grpo_dag_balanced50")))
+VAL_EVERY = int(os.environ.get("GRPO_VAL_EVERY", "5"))
+HOLDOUT_EVERY = int(os.environ.get("GRPO_HOLDOUT_EVERY", "20"))  # rare; expensive
+EVAL_MAX_NEW = int(os.environ.get("GRPO_EVAL_MAX_NEW", "256"))
+VAL_N = int(os.environ.get("GRPO_VAL_N", "9"))  # 3 per family
+PATIENCE = int(os.environ.get("GRPO_PATIENCE", "3"))  # val evals without improve
+MIN_DELTA = float(os.environ.get("GRPO_MIN_DELTA", "0.01"))
 
 
 def load_gt(path: Path, max_samples: int) -> list[dict]:
@@ -55,15 +66,42 @@ def load_gt(path: Path, max_samples: int) -> list[dict]:
     return rows
 
 
+def split_train_val(rows: list[dict], val_n: int, seed: int) -> tuple[list[dict], list[dict]]:
+    """Balanced val slice; rest is train. Val never used for GRPO rollouts."""
+    by_fam: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_fam[r.get("family") or "unknown"].append(r)
+    rng = random.Random(seed)
+    val, train = [], []
+    fams = sorted(by_fam)
+    if not fams:
+        return rows, []
+    base, rem = divmod(min(val_n, len(rows)), len(fams))
+    for i, f in enumerate(fams):
+        pool = list(by_fam[f])
+        rng.shuffle(pool)
+        q = min(len(pool), base + (1 if i < rem else 0))
+        val.extend(pool[:q])
+        train.extend(pool[q:])
+    # leftovers if some fams short
+    taken = {id(r) for r in val}
+    for r in rows:
+        if id(r) not in taken and r not in train:
+            train.append(r)
+    return train, val
+
+
 def build_prompt(gt: dict) -> str:
     events = gt.get("events") or []
     lines = []
     for e in events:
+        if not isinstance(e, dict):
+            continue
         op = e.get("op") or "?"
         label = e.get("label") or ""
         obs = e.get("observed") or {}
         t0, t1 = e.get("t_start"), e.get("t_end")
-        obs_s = ", ".join(f"{k}={v}" for k, v in obs.items()) if obs else ""
+        obs_s = ", ".join(f"{k}={v}" for k, v in obs.items()) if isinstance(obs, dict) else ""
         bit = f"- t={t0}-{t1}s  {op}"
         if label:
             bit += f" ({label})"
@@ -92,7 +130,16 @@ def extract_json(text: str) -> str:
 
 
 def score(pred_text: str, gt: dict) -> dict:
-    return dag_reward(extract_json(pred_text), gt)
+    try:
+        return dag_reward(extract_json(pred_text), gt)
+    except Exception as e:
+        return {
+            "reward": 0.0,
+            "schema_ok": 0.0,
+            "critical_ops": 0.0,
+            "taken_branch": 0.0,
+            "error": f"score_fail:{type(e).__name__}",
+        }
 
 
 def attach_lora(model):
@@ -111,8 +158,16 @@ def attach_lora(model):
     return model
 
 
+def _language_model(model):
+    core = model.get_base_model() if hasattr(model, "get_base_model") else model
+    if hasattr(core, "model") and hasattr(core.model, "language_model"):
+        return core.model.language_model
+    if hasattr(core, "language_model"):
+        return core.language_model
+    return core
+
+
 def leave_one_out_adv(rewards: torch.Tensor) -> torch.Tensor:
-    """rewards: (G,) → advantages."""
     g = rewards.numel()
     adv = torch.empty_like(rewards)
     for i in range(g):
@@ -123,16 +178,60 @@ def leave_one_out_adv(rewards: torch.Tensor) -> torch.Tensor:
     return (adv - adv.mean()) / (adv.std() + 1e-8)
 
 
-def seq_logprob(model, ids: torch.Tensor, prompt_len: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Mean token logprob on completion + mask sum."""
-    labels = ids.clone()
-    labels[:, :prompt_len] = -100
-    logits = model(ids).logits[:, :-1]
+def seq_logprob_batch(model, ids: torch.Tensor, prompt_lens: list[int]) -> torch.Tensor:
+    """ids (G,T) → mean completion logprob per row (G,)."""
+    lm = _language_model(model)
+    logits = lm(input_ids=ids).logits[:, :-1]
     logp = F.log_softmax(logits, dim=-1)
     tgt = ids[:, 1:]
-    mask = labels[:, 1:] != -100
+    G, Tm = tgt.shape
+    mask = torch.zeros(G, Tm, device=ids.device, dtype=torch.bool)
+    for i, pl in enumerate(prompt_lens):
+        # completion tokens are indices >= pl in full seq → in tgt that's >= pl-1? 
+        # ids layout: [pad...][prompt][completion]; left-padded so real prompt ends at enc_width.
+        # We pass enc_width as prompt_len for every row in a chunk (same prompt width).
+        start = max(pl - 1, 0)
+        mask[i, start:] = True
     token_logp = logp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1) * mask
-    return token_logp.sum() / mask.sum().clamp_min(1), mask
+    return token_logp.sum(dim=1) / mask.sum(dim=1).clamp_min(1)
+
+
+@torch.no_grad()
+def eval_set(model, tok, device, rows: list[dict], *, prefix: str, step: int) -> dict:
+    if not rows:
+        return {}
+    was = model.training
+    model.eval()
+    lm = _language_model(model)
+    scores = []
+    for gt in tqdm(rows, desc=prefix, leave=False):
+        enc = tok(build_prompt(gt), return_tensors="pt", truncation=True, max_length=1536).to(device)
+        out = lm.generate(
+            **enc,
+            max_new_tokens=EVAL_MAX_NEW,
+            do_sample=False,
+            pad_token_id=tok.pad_token_id,
+            eos_token_id=tok.eos_token_id,
+        )
+        text = tok.decode(out[0, enc.input_ids.shape[1] :], skip_special_tokens=True)
+        scores.append(score(text, gt))
+    if was:
+        model.train()
+    n = max(len(scores), 1)
+    summary = {
+        "n": len(scores),
+        "reward_mean": round(sum(s["reward"] for s in scores) / n, 4),
+        "schema_ok": round(sum(s["schema_ok"] for s in scores) / n, 4),
+        "critical_ops": round(sum(s["critical_ops"] for s in scores) / n, 4),
+        "taken_branch": round(sum(s["taken_branch"] for s in scores) / n, 4),
+    }
+    wandb.log({f"{prefix}/{k}": v for k, v in summary.items()}, step=step)
+    print(prefix.upper(), json.dumps(summary), flush=True)
+    CKPT_DIR.mkdir(parents=True, exist_ok=True)
+    (CKPT_DIR / f"{prefix.replace('/', '_')}_step{step}.json").write_text(
+        json.dumps({"summary": summary, "rows": scores}, indent=2) + "\n"
+    )
+    return summary
 
 
 def main() -> None:
@@ -142,9 +241,12 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     assert device.type == "cuda", "need GPU"
 
-    gts = load_gt(GT_PATH, MAX_SAMPLES)
+    pool = load_gt(GT_PATH, MAX_SAMPLES)
+    train_rows, val_rows = split_train_val(pool, VAL_N, SEED)
+    holdout = load_gt(HOLDOUT_PATH, 0) if HOLDOUT_PATH.exists() else []
+
     project = os.environ.get("WANDB_PROJECT", "teachonce-nemo-rl")
-    name = os.environ.get("WANDB_NAME", "grpo-dag-fast50")
+    name = os.environ.get("WANDB_NAME", "grpo-nemotron-balanced50-h100")
     run = wandb.init(
         project=project,
         name=name,
@@ -152,54 +254,67 @@ def main() -> None:
         config={
             "model": MODEL,
             "gt_path": str(GT_PATH),
-            "n_gt": len(gts),
-            "max_samples": MAX_SAMPLES,
+            "holdout_path": str(HOLDOUT_PATH),
+            "n_pool": len(pool),
+            "n_train": len(train_rows),
+            "n_val": len(val_rows),
+            "n_holdout": len(holdout),
+            "holdout_ids": [r.get("video_id") for r in holdout],
             "steps": STEPS,
             "group": GROUP,
             "batch": BATCH,
             "max_new": MAX_NEW,
+            "eval_max_new": EVAL_MAX_NEW,
             "lr": LR,
             "kl_coef": KL_COEF,
             "lora": USE_LORA,
+            "val_every": VAL_EVERY,
+            "holdout_every": HOLDOUT_EVERY,
+            "patience": PATIENCE,
+            "min_delta": MIN_DELTA,
             "algo": "grpo-loo-dag-batched",
-            "reward": "scripts.nemo_rl_gt.dag_reward",
         },
     )
     print("WANDB_RUN_ID=", run.id)
     print("WANDB_URL=", run.url)
-    print(f"GT={GT_PATH} n={len(gts)} batch={BATCH} group={GROUP} max_new={MAX_NEW} steps={STEPS}")
+    print(
+        f"train={len(train_rows)} val={len(val_rows)} holdout={len(holdout)} "
+        f"B={BATCH} G={GROUP} max_new={MAX_NEW} steps={STEPS} patience={PATIENCE}"
+    )
 
     tok = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    tok.padding_side = "left"  # needed for batched generate
+    tok.padding_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL, torch_dtype=torch.bfloat16, trust_remote_code=True
     ).to(device)
     model = attach_lora(model)
     model.train()
-
-    ref = AutoModelForCausalLM.from_pretrained(
-        MODEL, torch_dtype=torch.bfloat16, trust_remote_code=True
-    ).to(device)
-    ref.eval()
-    for p in ref.parameters():
-        p.requires_grad_(False)
-
     opt = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=LR)
-    order = list(range(len(gts)))
+
+    order = list(range(len(train_rows)))
     random.shuffle(order)
     cursor = 0
+    best_val = -1.0
+    bad = 0
+    best_dir = CKPT_DIR / "best"
+
+    # baseline curves at step 0
+    if val_rows:
+        s0 = eval_set(model, tok, device, val_rows, prefix="val", step=0)
+        best_val = float(s0.get("reward_mean", 0.0))
 
     pbar = tqdm(range(STEPS), desc="GRPO", unit="step", dynamic_ncols=True)
+    stopped_early = False
     for step in pbar:
         t0 = time.time()
         batch_idx = []
         for _ in range(BATCH):
             batch_idx.append(order[cursor % len(order)])
             cursor += 1
-        batch_gts = [gts[i] for i in batch_idx]
+        batch_gts = [train_rows[i] for i in batch_idx]
         prompts = [build_prompt(g) for g in batch_gts]
 
         enc = tok(
@@ -207,18 +322,15 @@ def main() -> None:
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=2048,
+            max_length=1536,
         ).to(device)
-        # left-pad → prompt lens from attention mask
-        prompt_lens = enc.attention_mask.sum(dim=1).tolist()
-        pbar.set_postfix_str(
-            f"phase=rollout B={BATCH}×G={GROUP} ids={[g['id'][-12:] for g in batch_gts]}"
-        )
+        enc_width = enc.input_ids.shape[1]
+        pbar.set_postfix_str(f"rollout {[g.get('video_id','')[-10:] for g in batch_gts]}")
 
         t_gen = time.time()
         with torch.no_grad():
-            # one batched decode: B prompts → B*GROUP sequences
-            out = model.generate(
+            lm = _language_model(model)
+            out = lm.generate(
                 **enc,
                 max_new_tokens=MAX_NEW,
                 do_sample=True,
@@ -226,47 +338,38 @@ def main() -> None:
                 top_p=0.95,
                 num_return_sequences=GROUP,
                 pad_token_id=tok.pad_token_id,
+                eos_token_id=tok.eos_token_id,
             )
         gen_s = time.time() - t_gen
-        # out: (B*GROUP, seq)
 
         all_rewards, all_parts, all_losses, all_kls = [], [], [], []
         for bi, gt in enumerate(batch_gts):
-            pl = int(prompt_lens[bi])
             chunk = out[bi * GROUP : (bi + 1) * GROUP]
-            rewards, parts, gens = [], [], []
+            rewards, parts = [], []
             for gi in range(GROUP):
-                seq = chunk[gi]
-                # strip left pad in prompt region for decode: use pl from original enc width
-                # generated ids include left-padded prompt; completion starts after full enc width
-                enc_width = enc.input_ids.shape[1]
-                text = tok.decode(seq[enc_width:], skip_special_tokens=True)
+                text = tok.decode(chunk[gi, enc_width:], skip_special_tokens=True)
                 sc = score(text, gt)
                 rewards.append(float(sc["reward"]))
                 parts.append(sc)
-                gens.append(seq)
-                tqdm.write(
-                    f"step={step} b={bi} gen={gi+1}/{GROUP} "
-                    f"R={sc['reward']:.3f} schema={sc.get('schema_ok', 0)} "
-                    f"id={gt['id'][-16:]}",
-                    file=sys.stderr,
-                )
-
             r = torch.tensor(rewards, device=device, dtype=torch.float32)
             adv = leave_one_out_adv(r)
             all_rewards.extend(rewards)
             all_parts.extend(parts)
 
-            for i, seq in enumerate(gens):
-                ids = seq.unsqueeze(0)
-                # prompt_len for loss mask: left-padded so real tokens end at enc_width;
-                # mask everything before last `pl` prompt tokens… simpler: mask first enc_width
-                seq_lp, _ = seq_logprob(model, ids, enc_width)
-                with torch.no_grad():
-                    ref_lp, _ = seq_logprob(ref, ids, enc_width)
-                kl = (seq_lp.detach() - ref_lp).clamp_min(0)
-                all_losses.append(-adv[i] * seq_lp + KL_COEF * kl)
-                all_kls.append(float(kl))
+            # one batched forward for G completions (policy + ref)
+            ids = chunk  # (G, T)
+            plens = [enc_width] * GROUP
+            seq_lp = seq_logprob_batch(model, ids, plens)
+            with torch.no_grad():
+                if hasattr(model, "disable_adapter"):
+                    with model.disable_adapter():
+                        ref_lp = seq_logprob_batch(model, ids, plens)
+                else:
+                    ref_lp = seq_lp.detach()
+            kl = (seq_lp.detach() - ref_lp).clamp_min(0)
+            for i in range(GROUP):
+                all_losses.append(-adv[i] * seq_lp[i] + KL_COEF * kl[i])
+                all_kls.append(float(kl[i]))
 
         loss = torch.stack(all_losses).mean()
         opt.zero_grad(set_to_none=True)
@@ -280,7 +383,7 @@ def main() -> None:
         branch_m = sum(p.get("taken_branch", 0) for p in all_parts) / len(all_parts)
         elapsed = time.time() - t0
         r_mean = float(r_t.mean())
-        # one commit per GRPO step so train/* actually lands on the chart
+
         wandb.log(
             {
                 "train/loss": float(loss.detach()),
@@ -291,31 +394,54 @@ def main() -> None:
                 "train/critical_ops": crit_m,
                 "train/taken_branch": branch_m,
                 "train/kl": sum(all_kls) / max(len(all_kls), 1),
-                "train/batch": BATCH,
-                "train/group": GROUP,
                 "perf/gen_seconds": gen_s,
                 "perf/step_seconds": elapsed,
-                "data/n_gt": len(gts),
             },
-            step=step,
+            step=step + 1,
         )
-        pbar.set_postfix(
-            loss=f"{float(loss):.3f}",
-            R=f"{r_mean:.2f}",
-            schema=f"{schema_m:.2f}",
-            gen_s=f"{gen_s:.0f}",
-            s=f"{elapsed:.0f}",
-        )
+        pbar.set_postfix(loss=f"{float(loss):.3f}", R=f"{r_mean:.2f}", schema=f"{schema_m:.2f}", gen_s=f"{gen_s:.0f}")
 
-        if (step + 1) % 10 == 0 or step + 1 == STEPS:
-            CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        # --- val curve + early stop ---
+        if val_rows and ((step + 1) % VAL_EVERY == 0 or step + 1 == STEPS):
+            vs = eval_set(model, tok, device, val_rows, prefix="val", step=step + 1)
+            vr = float(vs.get("reward_mean", 0.0))
+            if vr >= best_val + MIN_DELTA:
+                best_val = vr
+                bad = 0
+                best_dir.mkdir(parents=True, exist_ok=True)
+                model.save_pretrained(best_dir)
+                tok.save_pretrained(best_dir)
+                (best_dir / "best_meta.json").write_text(
+                    json.dumps({"step": step + 1, "val_reward": best_val}, indent=2) + "\n"
+                )
+                tqdm.write(f"best val={best_val:.3f} @ step {step+1} → {best_dir}")
+            else:
+                bad += 1
+                tqdm.write(f"val={vr:.3f} no improve ({bad}/{PATIENCE})")
+                if bad >= PATIENCE:
+                    tqdm.write(f"early stop at step {step+1} best_val={best_val:.3f}")
+                    stopped_early = True
+                    wandb.log({"early_stop/step": step + 1, "early_stop/best_val": best_val}, step=step + 1)
+                    break
+
+        if holdout and ((step + 1) % HOLDOUT_EVERY == 0):
+            eval_set(model, tok, device, holdout, prefix="holdout", step=step + 1)
+
+        if (step + 1) % 10 == 0:
             out_dir = CKPT_DIR / f"step_{step + 1}"
+            out_dir.mkdir(parents=True, exist_ok=True)
             model.save_pretrained(out_dir)
             tok.save_pretrained(out_dir)
-            tqdm.write(f"ckpt={out_dir}")
 
+    final_step = step + 1
+    if holdout:
+        eval_set(model, tok, device, holdout, prefix="holdout_final", step=final_step)
+
+    wandb.summary["best_val_reward"] = best_val
+    wandb.summary["stopped_early"] = stopped_early
+    wandb.summary["final_step"] = final_step
     wandb.finish()
-    print("DONE", run.url)
+    print("DONE", run.url, "best_val", best_val, "early" if stopped_early else "full")
 
 
 if __name__ == "__main__":

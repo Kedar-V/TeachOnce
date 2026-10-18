@@ -3,13 +3,30 @@
 __pycache__/
 *.pyc
 .venv/
+**/.venv/
 smoke-test/.venv/
 env/
-results/
 *.log
 .cache/
 .ipynb_checkpoints/
-data/raw/
 *.mkv
 *.mcap
+logs/
 
+# bulky / local-only
+data/
+motion-graphics-studio/
+teachonce-web/
+
+# local runtime / media
+teachonce-web/backend/.uploads/
+**/node_modules/
+demo/tab-walkthrough/node_modules/
+demo/clips/
+demo/**/*.mp4
+demo/**/*.png
+demo/**/*.webm
+docs/assets/
+*.pdf
+results/
+*.bak

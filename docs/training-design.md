@@ -11,11 +11,15 @@
 
 Specialize Nemotron VL so `(screen video [+ optional SOP] + tool defs) → executable DAG JSON` over the MVP tool registry.
 
+**Hackathon order (from baseline):** fix path-consistent GT → product SFT (raise op recall) → GRPO. Skip Stage-A unless SFT plateaus. Serve with registry `guided_json` `oneOf`.
+
 Three stages:
 
-1. **Pretrain** — domain adapt on public screen video (VideoCUA)  
-2. **SFT** — teach product DAG JSON format + registry ops  
+1. **Pretrain** — domain adapt on public screen video (VideoCUA) — optional if Stage-B ready  
+2. **SFT** — teach product DAG JSON format + registry ops (path-consistent gold)  
 3. **RL (GRPO)** — align generations to `dag_reward`  
+
+**Progress / checkpoints:** `scripts/run_train_pipeline.sh` → `checkpoints/train_pipeline_progress.json` + `checkpoints/sft_nemotron_vl/progress.json`; LoRA saved every `SFT_CKPT_EVERY` steps (`step_N`, `epoch_N`, `latest`, resume via `SFT_RESUME=1`).
 
 ---
 
@@ -82,7 +86,7 @@ flowchart TB
 |-------|------|------|-----------|-----------|
 | **1** | Pretrain / domain adapt | VideoCUA (+ OSTask MVP) → remapped IR/DAG via adapter | Teach VL: screen video → structured workflow JSON | NeMo AutoModel LoRA SFT |
 | **2** | Product SFT | ~50 Northstar videos (warranty / parts / escalate), gold DAGs | Teach our DAG JSON schema + MVP registry ops / topologies | Continue LoRA SFT from Ckpt A |
-| **3** | RL (GRPO) | `data/generated/nemo_rl/gt.jsonl` from Stage-B gold | Maximize `dag_reward` (schema / critical ops / taken branch) | GRPO ([`scripts/grpo_dag_wandb.py`](../scripts/grpo_dag_wandb.py)); full NeMo-RL when Brev CUDA allows |
+| **3** | RL (GRPO) | `data/generated/nemo_rl/gt.jsonl` from Stage-B gold | Maximize `dag_reward` (schema / critical ops / taken branch) | **Canonical:** [`rl-vllm-gym-architecture.md`](rl-vllm-gym-architecture.md) (vLLM `guided_json` + `/update_weights` + NeMo-RL + Gym). Bridge: [`scripts/rl_vllm_guided_rft.py`](../scripts/rl_vllm_guided_rft.py). Do not use HF free-generate [`grpo_dag_wandb.py`](../scripts/grpo_dag_wandb.py) as primary. |
 
 Stage-B recording recipe: [`prompts/synthetic-finetune-videos.md`](prompts/synthetic-finetune-videos.md).  
 MVP Stage-A media: [`phases/mvp-train-subset.md`](phases/mvp-train-subset.md).

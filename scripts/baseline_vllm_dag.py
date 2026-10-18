@@ -82,6 +82,8 @@ def guided_schema() -> dict:
             },
         },
     }
+    # xgrammar: `contains` is unreliable; maxItems stops ACTION runaway.
+    # Scorer still calls repair_registry_dag() to inject END if missing.
     return {
         "type": "object",
         "additionalProperties": False,
@@ -92,14 +94,18 @@ def guided_schema() -> dict:
             "version": {"type": "string"},
             "nodes": {
                 "type": "array",
-                "minItems": 2,
+                "minItems": 4,
+                "maxItems": 16,
                 "items": {"oneOf": [start, decision, end, *_action_variants()]},
             },
             "edges": {
                 "type": "array",
+                "minItems": 2,
+                "maxItems": 24,
                 "items": {
                     "type": "object",
                     "required": ["from", "to"],
+                    "additionalProperties": False,
                     "properties": {
                         "from": {"type": "string"},
                         "to": {"type": "string"},
@@ -210,7 +216,17 @@ def main() -> None:
         raise SystemExit(f"vLLM not ready at {args.base_url}")
 
     per: list[dict] = []
-    sums = {"reward": 0.0, "schema_ok": 0.0, "critical_ops": 0.0, "taken_branch": 0.0, "latency_s": 0.0}
+    metric_keys = (
+        "reward",
+        "schema_ok",
+        "critical_ops",
+        "ops_precision",
+        "ops_recall",
+        "ops_f1",
+        "taken_branch",
+        "latency_s",
+    )
+    sums = {k: 0.0 for k in metric_keys}
     n_ok = 0
     for gt in tqdm(rows, desc="baseline"):
         try:
@@ -223,8 +239,8 @@ def main() -> None:
                 model=args.model,
                 prompt=gt.get("prompt")
                 or (
-                    "Emit executable DAG JSON. For each ACTION node pick one tool from the "
-                    "predefined registry (op+tool locked pairs in the schema)."
+                    "Emit executable DAG JSON. Compact: one START, few ACTIONs, required END. "
+                    "For each ACTION pick one registry tool (op+tool locked in the schema)."
                 ),
                 video_path=path,
                 schema=schema,
@@ -243,12 +259,15 @@ def main() -> None:
                 "reward": 0.0,
                 "schema_ok": 0.0,
                 "critical_ops": 0.0,
+                "ops_precision": 0.0,
+                "ops_recall": 0.0,
+                "ops_f1": 0.0,
                 "taken_branch": 0.0,
                 "latency_s": 0.0,
                 "error": str(e)[:300],
             }
         per.append(scores)
-        for k in ("reward", "schema_ok", "critical_ops", "taken_branch", "latency_s"):
+        for k in metric_keys:
             sums[k] += float(scores.get(k) or 0)
 
     n = max(len(per), 1)
@@ -262,6 +281,9 @@ def main() -> None:
         "mean_reward": round(sums["reward"] / n, 4),
         "mean_schema_ok": round(sums["schema_ok"] / n, 4),
         "mean_critical_ops": round(sums["critical_ops"] / n, 4),
+        "mean_ops_precision": round(sums["ops_precision"] / n, 4),
+        "mean_ops_recall": round(sums["ops_recall"] / n, 4),
+        "mean_ops_f1": round(sums["ops_f1"] / n, 4),
         "mean_taken_branch": round(sums["taken_branch"] / n, 4),
         "mean_latency_s": round(sums["latency_s"] / n, 3),
     }

@@ -1,0 +1,115 @@
+{
+  "purpose": "Demo videos from SFT train corpora that scored reward=1.0 via vLLM+guided_json (SFT merged weights).",
+  "sop": {
+    "file": "demo/SOP-CS-214_Laptop_Warranty.md",
+    "pairs_with": "warranty_01",
+    "note": "Vague operator brief for the pitch: open/paste into Studio → Operator instructions (SOP)."
+  },
+  "endpoint": {
+    "base_url": "http://127.0.0.1:8101/v1",
+    "model": "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16-SFT"
+  },
+  "n": 8,
+  "videos": [
+    {
+      "id": "nemo-rl-parts_01",
+      "dir": "parts_01",
+      "video": "demo/parts_01/video.mp4",
+      "bytes": 9303218,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_other_procs_vllm_dag.json",
+        "sft_holdout_strat25.json"
+      ],
+      "train_corpus": "gt.jsonl",
+      "has_expected_dag": true
+    },
+    {
+      "id": "nemo-rl-parts_10",
+      "dir": "parts_10",
+      "video": "demo/parts_10/video.mp4",
+      "bytes": 9316246,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_other_procs_vllm_dag.json",
+        "sft_holdout_strat25.json"
+      ],
+      "train_corpus": "gt.jsonl",
+      "has_expected_dag": true
+    },
+    {
+      "id": "nemo-rl-warranty_0010",
+      "dir": "warranty_0010",
+      "video": "demo/warranty_0010/video.mp4",
+      "bytes": 13057168,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_holdout_strat25.json"
+      ],
+      "train_corpus": "gt.jsonl",
+      "has_expected_dag": true
+    },
+    {
+      "id": "nemo-rl-warranty_0050",
+      "dir": "warranty_0050",
+      "video": "demo/warranty_0050/video.mp4",
+      "bytes": 12822570,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_holdout_strat25.json"
+      ],
+      "train_corpus": "gt_train_100.jsonl",
+      "has_expected_dag": false
+    },
+    {
+      "id": "nemo-rl-warranty_01",
+      "dir": "warranty_01",
+      "video": "demo/warranty_01/video.mp4",
+      "sop": "demo/warranty_01/SOP.md",
+      "bytes": 12822541,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_other_procs_vllm_dag.json"
+      ],
+      "train_corpus": "gt.jsonl",
+      "has_expected_dag": true
+    },
+    {
+      "id": "nemo-rl-warranty_0126",
+      "dir": "warranty_0126",
+      "video": "demo/warranty_0126/video.mp4",
+      "bytes": 12822570,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_holdout_balanced24.json"
+      ],
+      "train_corpus": "gt_train_100.jsonl",
+      "has_expected_dag": false
+    },
+    {
+      "id": "nemo-rl-warranty_0223",
+      "dir": "warranty_0223",
+      "video": "demo/warranty_0223/video.mp4",
+      "bytes": 13057192,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_holdout_balanced24.json",
+        "sft_holdout_strat25.json"
+      ],
+      "train_corpus": "gt_train_100.jsonl",
+      "has_expected_dag": false
+    },
+    {
+      "id": "nemo-rl-warranty_15",
+      "dir": "warranty_15",
+      "video": "demo/warranty_15/video.mp4",
+      "bytes": 10632752,
+      "reward": 1.0,
+      "verified_in": [
+        "sft_other_procs_vllm_dag.json"
+      ],
+      "train_corpus": "gt.jsonl",
+      "has_expected_dag": true
+    }
+  ]
+}

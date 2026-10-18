@@ -207,11 +207,64 @@ def build_dag(
     return {"id": workflow_id, "name": name, "version": "1.0.0", "nodes": nodes, "edges": edges}
 
 
+def repair_registry_dag(dag: dict[str, Any]) -> dict[str, Any]:
+    """Make guided_json outputs pass validate_registry_dag when possible.
+
+    guided_schema cannot require an END node (xgrammar has no reliable `contains`),
+    so models often emit START/ACTION/DECISION only, or edges to missing ids.
+    """
+    if not isinstance(dag, dict):
+        return dag
+    nodes_in = dag.get("nodes") or []
+    edges_in = dag.get("edges") or []
+    if not isinstance(nodes_in, list) or not isinstance(edges_in, list):
+        return dag
+    nodes = [dict(n) for n in nodes_in if isinstance(n, dict) and n.get("id")]
+    # lock tool from registry when op is known (guided oneOf should already; repair drift)
+    for n in nodes:
+        if n.get("type") == "ACTION" and n.get("op") in MVP_OPS:
+            n["tool"] = MVP_OPS[n["op"]]["service"]
+    ids = {n["id"] for n in nodes}
+    edges = [
+        dict(e)
+        for e in edges_in
+        if isinstance(e, dict) and e.get("from") in ids and e.get("to") in ids
+    ]
+    types = {n["id"]: n.get("type") for n in nodes}
+    if nodes and not any(t == "END" for t in types.values()):
+        end_id = "end"
+        i = 0
+        while end_id in ids:
+            i += 1
+            end_id = f"end_{i}"
+        nodes.append({"id": end_id, "type": "END", "outcome": "SUCCEEDED"})
+        ids.add(end_id)
+        outgoing = {e.get("from") for e in edges}
+        dangling = [
+            n["id"]
+            for n in nodes
+            if n.get("type") in ("ACTION", "DECISION", "START") and n["id"] not in outgoing
+        ]
+        if not dangling:
+            dangling = [n["id"] for n in nodes if n.get("type") != "END"][-1:]
+        for did in dangling:
+            edges.append({"from": did, "to": end_id, "when": None})
+    out = dict(dag)
+    out["nodes"] = nodes
+    out["edges"] = edges
+    return out
+
+
 def validate_registry_dag(dag: dict[str, Any]) -> list[str]:
     """Return error strings; empty == ok. Enforces tool-registry philosophy."""
     errs: list[str] = []
     nodes = dag.get("nodes") or []
     edges = dag.get("edges") or []
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return ["nodes/edges must be lists"]
+    nodes = [n for n in nodes if isinstance(n, dict)]
+    if len(nodes) != len(dag.get("nodes") or []):
+        errs.append("non-dict node entries")
     ids = [n.get("id") for n in nodes]
     if len(ids) != len(set(ids)):
         errs.append("duplicate node ids")
@@ -236,6 +289,9 @@ def validate_registry_dag(dag: dict[str, Any]) -> list[str]:
             if n.get("type") not in ("START", "ACTION", "DECISION", "END"):
                 errs.append(f"node {n.get('id')}: type {n.get('type')!r} not in MVP set")
     for e in edges:
+        if not isinstance(e, dict):
+            errs.append(f"non-dict edge: {e!r}")
+            continue
         if e.get("from") not in types or e.get("to") not in types:
             errs.append(f"edge endpoint missing: {e}")
     return errs

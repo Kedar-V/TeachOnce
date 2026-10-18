@@ -11,11 +11,11 @@ Rehearse a coherent demo: **expert video** → Nemotron generate (DAG) → execu
 ## Checklist (high level)
 
 - [ ] Flow C: expired / paid path on same DAG  
-- [ ] 3-minute demo script + README  
+- [ ] 3-minute demo script + README — living script: [`../../demo/VIDEO_SCRIPT.md`](../../demo/VIDEO_SCRIPT.md) 
 - [ ] Repo audit: no OpenAI/Anthropic/Gemini/Cursor LLM keys  
 - [ ] Brev stop/start verified for stage  
 - [ ] DoD in [`../plan.md`](../plan.md) §17  
-- [ ] Short bounty blurbs: Nemotron · Gym improvement · Red Hat vLLM  
+- [x] Bounty READMEs: [`../bounties/`](../bounties/) (Nemotron · Gym · vLLM); hub links from root `README.md`  
 
 ## Detail
 

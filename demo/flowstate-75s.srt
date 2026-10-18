@@ -1,0 +1,67 @@
+1
+00:00:00,460 --> 00:00:04,500
+Every company runs on procedures.
+
+2
+00:00:04,500 --> 00:00:06,900
+But the instructions?
+
+3
+00:00:06,900 --> 00:00:11,700
+“Check eligibility. Take appropriate action. Escalate when necessary.”
+
+4
+00:00:12,300 --> 00:00:16,200
+But the real process lives in people’s heads.
+
+5
+00:00:16,200 --> 00:00:21,600
+Turning it into automation takes days of mapping, coding, and testing.
+
+6
+00:00:22,750 --> 00:00:25,600
+Introducing…
+
+7
+00:00:25,900 --> 00:00:29,000
+FlowState.
+
+8
+00:00:29,500 --> 00:00:32,200
+Record a workflow once.
+
+9
+00:00:32,200 --> 00:00:39,600
+Our AI learns the actions, tools, and decisions, then turns that demonstration into an executable workflow.
+
+10
+00:00:40,130 --> 00:00:43,850
+Now, that workflow can run automatically.
+
+11
+00:00:43,850 --> 00:00:48,570
+No manual scripting. No rebuilding the process from scratch.
+
+12
+00:00:50,300 --> 00:00:52,800
+Ten thousand requests a month.
+
+13
+00:00:53,000 --> 00:00:55,400
+Save just three minutes each,
+
+14
+00:00:57,800 --> 00:01:00,600
+and that’s two hundred and forty thousand dollars a year
+
+15
+00:01:00,600 --> 00:01:02,600
+in recovered labor capacity.
+
+16
+00:01:03,400 --> 00:01:08,000
+Plus faster service, fewer errors, and lower development effort.
+
+17
+00:01:10,600 --> 00:01:13,800
+FlowState. Show it once. Automate it forever.

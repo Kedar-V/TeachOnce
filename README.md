@@ -1,78 +1,115 @@
-# TeachOnce
+# Flowstate
 
-Hackathon demo: teach a warranty SOP once → executable DAG → NVIDIA Nemotron on Brev.
+Teach a support SOP once from an expert screen recording. Get an executable DAG. Run it on cases.
 
-**AI policy:** NVIDIA / Brev / local vLLM only. No OpenAI, Anthropic, Gemini, or Cursor as inference backends.
+Hackathon stack: NVIDIA Nemotron Nano 12B v2 VL → Red Hat vLLM on Brev → NeMo Gym scoring → Flowstate web app. Inference is NVIDIA / Brev / local vLLM only (no OpenAI, Anthropic, Gemini, or Cursor as backends).
 
-## Phase 0 — Infra (Brev + vLLM + NeMo Gym)
+Challenge track: Fine-tuned & Specialized (~12.6B, under the 33B cap).
 
-Live VM facts: [`docs/brev.md`](docs/brev.md) · How-to: [`docs/implementation-stages.md`](docs/implementation-stages.md) · Tracker: [`docs/implementation.md`](docs/implementation.md)
+## Results (balanced holdout-24, same `guided_json`)
 
-### Mac once
+Base Nemotron VL vs product SFT vs one-round guided RFT. Scorer: `dag_reward` (`scripts/nemo_rl_gt.py`).
+
+| Metric | Baseline | SFT | RL |
+|--------|----------|-----|-----|
+| mean reward | 0.594 | 0.821 | 0.608 |
+| mean schema_ok | 0.958 | 0.958 | 1.000 |
+| mean critical_ops | 0.202 | 0.792 | 0.192 |
+| mean taken_branch | 0.500 | 0.667 | 0.500 |
+| ops precision | 0.493 | 0.655 | 0.549 |
+| ops recall | 0.202 | 0.792 | 0.192 |
+| ops F1 | 0.275 | 0.716 | 0.269 |
+
+Per-procedure mean reward (SFT wins all three):
+
+| Procedure | Baseline | SFT | RL |
+|-----------|----------|-----|-----|
+| escalate | 0.625 | 0.688 | 0.618 |
+| parts | 0.625 | 0.775 | 0.613 |
+| warranty | 0.532 | 1.000 | 0.593 |
+
+SFT is the improvement that stuck (~2.6× ops F1). Full write-up: [`docs/bounties/nemo-gym.md`](docs/bounties/nemo-gym.md).
+
+## How to run
+
+### 1. App (mock model, no GPU)
 
 ```bash
-brew install brevdev/homebrew-brev/brev
-brev login --email <you@email>
-cp .env.example .env   # set BREV_INSTANCE_NAME, LOCAL_VLLM_API_KEY, MODEL_ID
+./teachonce-web/run.sh
+# http://localhost:8000  ·  API docs /docs
 ```
 
-### Provision + bootstrap (GPU)
+Force mock even if a tunnel is up: `FORCE_MOCK=1 ./teachonce-web/run.sh`.
+
+### 2. App against live SFT on Brev
 
 ```bash
-brev search gpu --gpu-name A100 --min-vram 40 --sort price
-brev create teachonce-gpu -g A100 --min-vram 40 --stoppable --timeout 600
-# copy repo or bootstrap script onto VM, then:
-brev shell teachonce-gpu
-# on VM:
-bash scripts/bootstrap_brev.sh
-bash scripts/start_vllm.sh
-# wait for model load, then:
+cp .env.example .env   # BREV_INSTANCE_NAME, LOCAL_VLLM_API_KEY, MODEL_ID
+
+# on teachonce-gpu:
+bash scripts/bootstrap_brev.sh          # once
+bash scripts/start_vllm_sft.sh          # merged SFT Nemotron VL on :8000
+
+# on Mac:
+./scripts/tunnel_vllm.sh                # localhost:8101 → VM:8000
+cd teachonce-web && VLLM_BASE_URL=http://127.0.0.1:8101/v1 ./run.sh
+```
+
+Smoke the tunnel:
+
+```bash
+# with .env loaded
+bash scripts/smoke_test.sh
+# optional Gym MCQA: RUN_GYM=1 bash scripts/smoke_test.sh
+```
+
+### 3. NeMo Gym (on GPU box)
+
+```bash
 bash scripts/start_gym.sh
-RUN_GYM=1 bash scripts/smoke_test.sh
+bash scripts/smoke_gym_nemotron_vl.sh
 ```
 
-### Mac ↔ vLLM tunnel
+### 4. Holdout eval (on GPU box, vLLM up)
 
 ```bash
-./scripts/tunnel_vllm.sh
-# other terminal:
-source .env && ./scripts/smoke_test.sh
+# base VL or SFT — whichever model vLLM is serving
+python scripts/baseline_vllm_dag.py
+# or compare runs:
+bash scripts/eval_sft_vs_baseline.sh
 ```
 
-### Notebook smoke (Mac)
+More ops detail: [`docs/brev.md`](docs/brev.md) · train design: [`docs/training-design.md`](docs/training-design.md) · RL layout: [`docs/rl-vllm-gym-architecture.md`](docs/rl-vllm-gym-architecture.md).
 
-```bash
-brev port-forward teachonce-gpu -p 8000:8000   # leave running
-jupyter notebook smoke-test/phase0_integration.ipynb
-```
+## Demo
 
-See [`smoke-test/README.md`](smoke-test/README.md).
+| Item | Path |
+|------|------|
+| 3–5 min video script | [`demo/VIDEO_SCRIPT.md`](demo/VIDEO_SCRIPT.md) · [`demo/FLOWSTATE_75S_SCRIPT.md`](demo/FLOWSTATE_75S_SCRIPT.md) |
+| Example SOP | [`demo/SOP-CS-214_Laptop_Warranty.md`](demo/SOP-CS-214_Laptop_Warranty.md) |
+| Web app | [`teachonce-web/`](teachonce-web/) |
 
-### Stop
+## Bounty write-ups
 
-On VM: `./scripts/stop_services.sh` · On Mac: `brev stop teachonce-gpu` when idle (save credits).
+| Bounty | Doc |
+|--------|-----|
+| Best Use of NVIDIA Nemotron Lightning | [`docs/bounties/nemotron-lightning.md`](docs/bounties/nemotron-lightning.md) |
+| Best Model Improvement With NeMo Gym | [`docs/bounties/nemo-gym.md`](docs/bounties/nemo-gym.md) |
+| Best Use of Red Hat vLLM | [`docs/bounties/redhat-vllm.md`](docs/bounties/redhat-vllm.md) |
 
-| Script | Where | Does |
-|--------|-------|------|
-| `scripts/bootstrap_brev.sh` | VM | uv, vLLM venv, NeMo Gym, `.env` |
-| `scripts/start_vllm.sh` | VM | serve smoke model on `127.0.0.1:8000` |
-| `scripts/start_gym.sh` | VM | Gym → **local** vLLM (`vllm_model`) |
-| `scripts/smoke_test.sh` | VM or Mac | curl models + chat; `RUN_GYM=1` for eval |
-| `scripts/stop_services.sh` | VM | kill vLLM / Gym |
-| `scripts/tunnel_vllm.sh` | Mac | `brev port-forward … 8000:8000` |
+## Repo map
 
-## Pre-SFT baselines (`dag_reward`)
+| Path | What |
+|------|------|
+| `teachonce-web/` | Flowstate UI + API + model client (mock or live vLLM) |
+| `scripts/` | vLLM/Gym bootstrap, SFT, eval, `dag_reward` |
+| `configs/` | NeMo-RL + Gym sketch |
+| `docs/bounties/` | Submission one-pagers |
+| `demo/` | Video scripts + example SOP |
 
-Same GT: `data/generated/nemo_rl/gt.jsonl` (25 rows). Scorer: `schema_ok×0.4 + critical_ops×0.3 + taken_branch×0.3` via `scripts/nemo_rl_gt.py` / `scripts/score_dag_preds.py`.
+## Submission checklist
 
-| Run | Model | Input | mean reward | schema_ok | critical_ops | taken_branch | Artifact |
-|-----|-------|-------|-------------|-----------|--------------|--------------|----------|
-| Nemotron VL | `NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` @ vLLM | full `video.mp4` + `guided_json` (registry `oneOf`) | **0.649** | 1.0 | 0.19 | 0.64 | `results/baseline_vllm_dag.json` |
-| Grok fair | Cursor Grok `grok-4.7-medium-fast` subagents | 8 frames/video + GT `prompt` + registry list only | **0.809** | 1.0 | 0.56 | 0.80 | `results/baseline_grok_fair_dag.json` |
-| Grok unfair (invalid) | same Grok | frames + GT prompt + **extra branch-tip coaching** | 1.000 | 1.0 | 1.0 | 1.0 | `results/baseline_grok_dag.json` — do not cite |
-
-**Fair protocol (Grok):** inputs stripped to `results/grok_fair_inputs.jsonl` (`id`, `prompt`, `frames_dir` only — no gold). Registry lock = `results/grok_fair_registry.json` (same op/tool pairs as Nemotron guided schema). Agents forbidden from opening `gt.jsonl`. No Active/Expired→op hints from the harness.
-
-**Still asymmetric:** Grok sees frames; Nemotron sees video. Both share the GT `prompt` text (goal/family). Grok is a **reference ceiling**, not a TeachOnce inference backend (see AI policy above). Per-sample fair: Grok 17 / Nemotron 3 / ties 0.
-
-Nemotron script: `scripts/baseline_vllm_dag.py` (Brev `teachonce-gpu`).
+- [ ] GitHub repo link (this repo)
+- [ ] Project description (this README + bounty docs)
+- [ ] 3–5 minute demo video (record from `demo/` scripts)
+- [ ] Point judges at the three bounty docs above

@@ -24,7 +24,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.tool_registry_adapter import MVP_OPS, validate_registry_dag  # noqa: E402
+from scripts.tool_registry_adapter import (  # noqa: E402
+    MVP_OPS,
+    repair_registry_dag,
+    validate_registry_dag,
+)
 
 DEFAULT_OUT = ROOT / "data" / "generated" / "nemo_rl" / "gt.jsonl"
 
@@ -84,6 +88,66 @@ def _taken_branch(path_type: str | None, ops: list[str]) -> str | None:
     return None
 
 
+# Opposite branch tip for each filmed path — must not appear in SFT/eval gold.
+_OPPOSITE_OPS: dict[str, set[str]] = {
+    "active": {"RECORD_PAID_OPTIONS"},
+    "expired": {"CREATE_REPAIR"},
+    "in_stock": {"CREATE_BACKORDER"},
+    "backorder": {"CREATE_PARTS_SHIPMENT"},
+    "p1": {"ASSIGN_L2_QUEUE"},
+    "standard": {"PAGE_ONCALL"},
+}
+_OP_TO_BRANCH_NAME: dict[str, str] = {
+    "CREATE_REPAIR": "Active",
+    "RECORD_PAID_OPTIONS": "Expired",
+    "CREATE_PARTS_SHIPMENT": "InStock",
+    "CREATE_BACKORDER": "Backorder",
+    "PAGE_ONCALL": "P1",
+    "ASSIGN_L2_QUEUE": "Standard",
+}
+
+
+def path_consistent_dag(dag: dict[str, Any], path_type: str | None) -> dict[str, Any]:
+    """Drop the unfilmed branch tip so gold matches the video path."""
+    drop_ops = _OPPOSITE_OPS.get(path_type or "") or set()
+    if not drop_ops:
+        return dag
+
+    drop_ids = {
+        n["id"]
+        for n in (dag.get("nodes") or [])
+        if n.get("type") == "ACTION" and n.get("op") in drop_ops and n.get("id")
+    }
+    drop_branch_names = {_OP_TO_BRANCH_NAME[o] for o in drop_ops if o in _OP_TO_BRANCH_NAME}
+
+    nodes: list[dict[str, Any]] = []
+    for n in dag.get("nodes") or []:
+        if n.get("id") in drop_ids:
+            continue
+        if n.get("type") == "DECISION" and n.get("branches"):
+            n = dict(n)
+            n["branches"] = [b for b in n["branches"] if b.get("name") not in drop_branch_names]
+        nodes.append(n)
+
+    keep = {n.get("id") for n in nodes}
+    edges = [
+        e
+        for e in (dag.get("edges") or [])
+        if e.get("from") in keep
+        and e.get("to") in keep
+        and (e.get("when") is None or e.get("when") not in drop_branch_names)
+    ]
+    incoming = {e.get("to") for e in edges}
+    nodes = [n for n in nodes if n.get("type") != "END" or n.get("id") in incoming]
+    keep = {n.get("id") for n in nodes}
+    edges = [e for e in edges if e.get("from") in keep and e.get("to") in keep]
+
+    out = dict(dag)
+    out["nodes"] = nodes
+    out["edges"] = edges
+    return out
+
+
 def build_gt(
     *,
     video_path: str | Path,
@@ -96,17 +160,21 @@ def build_gt(
     events: list[dict[str, Any]] | None = None,
     row_id: str | None = None,
     extra: dict[str, Any] | None = None,
+    path_consistent: bool = True,
 ) -> dict[str, Any]:
     """Build one NeMo-RL GT record from video + gold DAG."""
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"video not found: {video_path}")
-    errs = validate_registry_dag(dag)
+
+    full_dag = dag
+    gold = path_consistent_dag(dag, path_type) if path_consistent else dag
+    errs = validate_registry_dag(gold)
     if errs:
         raise ValueError(f"invalid gold DAG: {errs}")
 
     vid = video_id or video_path.parent.name or video_path.stem
-    ops = _ops_from_dag(dag)
+    ops = _ops_from_dag(gold)
     filmed = [e.get("op") for e in (events or []) if e.get("op")]
     branch = _taken_branch(path_type, filmed or ops)
 
@@ -122,12 +190,14 @@ def build_gt(
         "video_id": vid,
         "tools_ref": tools_ref,
         # --- ground truth for reward / SFT target reuse ---
-        "gold_dag": dag,
-        "gold_dag_json": json.dumps(dag, separators=(",", ":"), sort_keys=True),
+        "gold_dag": gold,
+        "gold_dag_json": json.dumps(gold, separators=(",", ":"), sort_keys=True),
         "gold_ops": ops,
         "filmed_ops": filmed,
         "taken_branch": branch,
-        "critical_ops": sorted(_critical_ops(dag)),
+        "critical_ops": sorted(_critical_ops(gold)),
+        "full_family_ops": _ops_from_dag(full_dag),
+        "path_consistent": bool(path_consistent and path_type in _OPPOSITE_OPS),
         "events": events or [],
         # --- reward contract (Gym / GRPO read this; generate path ignores it) ---
         "reward_spec": {
@@ -153,22 +223,37 @@ def dag_reward(pred: dict[str, Any] | str, gt: dict[str, Any]) -> dict[str, Any]
         try:
             pred = json.loads(pred)
         except json.JSONDecodeError:
-            return {"reward": 0.0, "schema_ok": 0.0, "critical_ops": 0.0, "taken_branch": 0.0, "error": "bad_json"}
+            # truncated guided output — try closing common JSON tails
+            s, e = pred.find("{"), pred.rfind("}")
+            if s >= 0 and e > s:
+                try:
+                    pred = json.loads(pred[s : e + 1])
+                except json.JSONDecodeError:
+                    return {"reward": 0.0, "schema_ok": 0.0, "critical_ops": 0.0, "taken_branch": 0.0, "error": "bad_json"}
+            else:
+                return {"reward": 0.0, "schema_ok": 0.0, "critical_ops": 0.0, "taken_branch": 0.0, "error": "bad_json"}
 
     w = (gt.get("reward_spec") or {}).get("weights") or {
         "schema_ok": 0.4,
         "critical_ops": 0.3,
         "taken_branch": 0.3,
     }
+    # ponytail: guided_json cannot require END; repair then validate
+    if isinstance(pred, dict):
+        pred = repair_registry_dag(pred)
     errs = validate_registry_dag(pred) if isinstance(pred, dict) else ["not_dict"]
     schema_ok = 1.0 if not errs else 0.0
 
     gold_crit = set(gt.get("critical_ops") or [])
     pred_ops = set(_ops_from_dag(pred)) if isinstance(pred, dict) else set()
+    tp = len(gold_crit & pred_ops)
     if gold_crit:
-        critical = len(gold_crit & pred_ops) / len(gold_crit)
+        recall = tp / len(gold_crit)
     else:
-        critical = 1.0 if pred_ops else 0.0
+        recall = 1.0 if pred_ops else 0.0
+    precision = (tp / len(pred_ops)) if pred_ops else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    critical = recall  # backward-compatible alias
 
     branch = gt.get("taken_branch")
     branch_score = 0.0
@@ -194,6 +279,9 @@ def dag_reward(pred: dict[str, Any] | str, gt: dict[str, Any]) -> dict[str, Any]
         "reward": round(reward, 4),
         "schema_ok": schema_ok,
         "critical_ops": round(critical, 4),
+        "ops_precision": round(precision, 4),
+        "ops_recall": round(recall, 4),
+        "ops_f1": round(f1, 4),
         "taken_branch": branch_score,
         "errors": errs,
     }
@@ -256,10 +344,46 @@ def save_gt(records: list[dict[str, Any]], out: Path) -> Path:
         "count": len(records),
         "path": str(out.resolve()),
         "ids": [r["id"] for r in records],
+        "path_consistent": sum(1 for r in records if r.get("path_consistent")),
         "reward": "scripts.nemo_rl_gt.dag_reward",
     }
     (out.parent / "manifest.json").write_text(json.dumps(index, indent=2) + "\n")
     return out
+
+
+def rewrite_path_consistent(src: Path, out: Path | None = None) -> list[dict[str, Any]]:
+    """Rewrite existing GT JSONL so gold matches filmed path (drops opposite tip)."""
+    src = Path(src)
+    out = Path(out) if out else src
+    records: list[dict[str, Any]] = []
+    for line in src.read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        # Prefer full family if we stored it earlier; else use gold_dag as source.
+        raw = r.get("gold_dag")
+        if not raw:
+            continue
+        # If already path-consistent and opposite tip gone, still re-run for idempotency.
+        source_ops = r.get("full_family_ops")
+        if source_ops and set(source_ops) - set(_ops_from_dag(raw)):
+            # reconstruct is hard without full dag; use gold_dag as-is for prune input
+            pass
+        gold = path_consistent_dag(raw, r.get("path_type"))
+        # If gold already pruned, also try pruning against full_family by rebuilding nodes? skip.
+        r["full_family_ops"] = r.get("full_family_ops") or _ops_from_dag(raw)
+        r["gold_dag"] = gold
+        r["gold_dag_json"] = json.dumps(gold, separators=(",", ":"), sort_keys=True)
+        r["gold_ops"] = _ops_from_dag(gold)
+        r["critical_ops"] = sorted(_critical_ops(gold))
+        r["path_consistent"] = True
+        r["taken_branch"] = _taken_branch(r.get("path_type"), r["gold_ops"])
+        records.append(r)
+    if out.resolve() == src.resolve():
+        bak = src.with_suffix(src.suffix + ".pre_path_consistent.bak")
+        bak.write_text(src.read_text())
+    save_gt(records, out)
+    return records
 
 
 def main() -> None:
@@ -271,8 +395,31 @@ def main() -> None:
     ap.add_argument("--goal", type=str, default="Compile workflow DAG from expert video")
     ap.add_argument("--family", type=str, default="warranty_resolution")
     ap.add_argument("--path-type", type=str, default=None)
+    ap.add_argument("--rewrite-path-consistent", type=Path, help="Rewrite existing gt.jsonl in place (with .bak)")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = ap.parse_args()
+
+    if args.rewrite_path_consistent:
+        dest = args.rewrite_path_consistent
+        records = rewrite_path_consistent(args.rewrite_path_consistent, dest)
+        both = sum(
+            1
+            for r in records
+            if {"CREATE_REPAIR", "RECORD_PAID_OPTIONS"} <= set(r.get("gold_ops") or [])
+        )
+        print(
+            json.dumps(
+                {
+                    "wrote": str(dest),
+                    "count": len(records),
+                    "still_both_warranty_tips": both,
+                    "path_consistent": sum(1 for r in records if r.get("path_consistent")),
+                    "mean_gold_ops": round(sum(len(r.get("gold_ops") or []) for r in records) / max(len(records), 1), 2),
+                },
+                indent=2,
+            )
+        )
+        return
 
     records: list[dict[str, Any]] = []
 
@@ -299,7 +446,7 @@ def main() -> None:
         )
 
     if not records:
-        ap.error("provide --from-split and/or --from-dir and/or --video+--dag")
+        ap.error("provide --from-split and/or --from-dir and/or --video+--dag and/or --rewrite-path-consistent")
 
     path = save_gt(records, args.out)
     # sanity: gold scores 1.0 against itself
@@ -364,10 +511,12 @@ def _selfcheck() -> None:
     sample = ROOT / "data/generated/demonstrations/videos/parts_01/video.mp4"
     if sample.exists():
         gt = build_gt(video_path=sample, dag=dag, path_type="active", family="warranty_resolution")
-        assert dag_reward(dag, gt)["reward"] >= 0.99
+        assert "RECORD_PAID_OPTIONS" not in gt["gold_ops"]
+        assert "CREATE_REPAIR" in gt["gold_ops"]
+        assert dag_reward(gt["gold_dag"], gt)["reward"] >= 0.99
         empty = dag_reward({"nodes": [], "edges": []}, gt)
         assert empty["reward"] < 0.5
-        print("selfcheck ok", gt["id"], "reward_self", dag_reward(dag, gt)["reward"])
+        print("selfcheck ok", gt["id"], "ops", gt["gold_ops"], "R", dag_reward(gt["gold_dag"], gt)["reward"])
     else:
         print("selfcheck skip (no sample video)")
 

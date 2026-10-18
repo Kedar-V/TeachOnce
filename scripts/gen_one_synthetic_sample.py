@@ -50,6 +50,35 @@ NAV_FOR = {
 }
 
 
+def set_procedure_nav(procedure: str) -> None:
+    """Swap left-nav labels for warranty / parts / escalate consoles."""
+    global NAV, NAV_FOR
+    if procedure == "parts":
+        NAV = ["Customers", "Tickets", "Devices", "Inventory", "Shipping"]
+        NAV_FOR = {
+            "lookup": 0,
+            "ticket": 1,
+            "device": 2,
+            "inventory": 3,
+            "shipping": 4,
+            "update": 1,
+        }
+    elif procedure == "escalate":
+        NAV = ["Tickets", "Customers", "Escalation"]
+        NAV_FOR = {"ticket": 0, "lookup": 1, "escalate": 2, "update": 0}
+    else:
+        NAV = ["Customers", "Tickets", "Devices", "Warranty", "Diagnostics", "Repair"]
+        NAV_FOR = {
+            "lookup": 0,
+            "ticket": 1,
+            "device": 2,
+            "warranty": 3,
+            "diag": 4,
+            "repair": 5,
+            "update": 1,
+        }
+
+
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     cands = (
         [
@@ -423,16 +452,17 @@ def scene_paid(form_filled: bool, confirmed: bool, typed_notes: str) -> Image.Im
     return img
 
 
-def scene_update(editing: bool, saved: bool, note: str) -> Image.Image:
+def scene_update(editing: bool, saved: bool, note: str, ticket_status: str | None = None, linked: str | None = None) -> Image.Image:
     img, d = chrome(NAV_FOR["update"], "Tickets — update status")
     d.text((220, 104), f"Update {CASE['ticket_id']}", font=FB18, fill=TEXT)
     rr(d, [220, 150, 980, 520], fill=PANEL, outline=BORDER, radius=8)
     d.text((240, 176), "Status", font=F13, fill=MUTED)
-    ticket_status = (
-        "Repair scheduled"
-        if CASE.get("warranty_status", "ACTIVE") == "ACTIVE"
-        else "Awaiting paid approval"
-    )
+    if ticket_status is None:
+        ticket_status = (
+            "Repair scheduled"
+            if CASE.get("warranty_status", "ACTIVE") == "ACTIVE"
+            else "Awaiting paid approval"
+        )
     status = ticket_status if (editing or saved) else "Open"
     input_box(d, 400, 168, 280, 34, status, focused=editing and not saved)
     chip(d, (700, 174), status, GREEN if saved else "#1e40af", GREEN_BG if saved else "#dbeafe")
@@ -444,13 +474,108 @@ def scene_update(editing: bool, saved: bool, note: str) -> Image.Image:
         focused=editing and not saved,
     )
     d.text((240, 290), "Linked record", font=F13, fill=MUTED)
-    linked = CASE["repair_id"] if CASE.get("warranty_status", "ACTIVE") == "ACTIVE" else "Paid quote"
+    if linked is None:
+        linked = CASE["repair_id"] if CASE.get("warranty_status", "ACTIVE") == "ACTIVE" else "Paid quote"
     d.text((400, 290), linked, font=F14, fill=TEXT)
     if not saved:
         btn(d, 400, 360, 120, 36, "Save ticket", primary=True)
     else:
         toast(d, f"Ticket saved — {ticket_status}")
         chip(d, (400, 360), "Saved", GREEN, GREEN_BG)
+    return img
+
+
+def scene_inventory(loaded: bool) -> Image.Image:
+    img, d = chrome(NAV_FOR["inventory"], "Inventory — spare parts")
+    d.text((220, 104), "Check depot stock for the failed FRU", font=FB18, fill=TEXT)
+    rr(d, [220, 160, 820, 380], fill=PANEL, outline=BORDER, radius=8)
+    sku = CASE.get("part_sku", "SSD-1TB-NS")
+    name = CASE.get("part_name", "1TB NVMe SSD")
+    stock = CASE.get("stock", "IN_STOCK")
+    d.text((240, 180), f"{name} · {sku}", font=FB16, fill=TEXT)
+    d.text((240, 220), f"Device {CASE['device_id']}", font=F14, fill=MUTED)
+    if loaded:
+        if stock == "IN_STOCK":
+            chip(d, (240, 260), "IN_STOCK", GREEN, GREEN_BG)
+            btn(d, 240, 320, 160, 34, "Create shipment", primary=True)
+        else:
+            chip(d, (240, 260), "OUT_OF_STOCK", RED, "#fee2e2")
+            btn(d, 240, 320, 160, 34, "Create backorder", primary=True)
+        toast(d, stock)
+    else:
+        d.text((240, 280), "Loading stock…", font=F16, fill=MUTED)
+    return img
+
+
+def scene_shipment(confirmed: bool) -> Image.Image:
+    img, d = chrome(NAV_FOR["shipping"], "Shipping — create shipment")
+    d.text((220, 104), "Create parts shipment", font=FB18, fill=TEXT)
+    rr(d, [220, 150, 900, 480], fill=PANEL, outline=BORDER, radius=8)
+    sid = CASE.get("shipment_id", "SH-22011")
+    for i, (k, v) in enumerate(
+        [
+            ("SKU", CASE.get("part_sku", "SSD-1TB-NS")),
+            ("Ticket", CASE["ticket_id"]),
+            ("Ship to", CASE.get("customer_name", "Customer")),
+            ("Method", "Overnight depot"),
+        ]
+    ):
+        d.text((240, 176 + i * 40), k, font=F13, fill=MUTED)
+        input_box(d, 400, 168 + i * 40, 400, 34, v if confirmed or True else "", focused=False)
+    if not confirmed:
+        btn(d, 400, 380, 160, 36, "Submit shipment", primary=True)
+    else:
+        chip(d, (400, 380), f"Created {sid}", GREEN, GREEN_BG)
+        toast(d, f"Shipment {sid} queued")
+    return img
+
+
+def scene_backorder(confirmed: bool) -> Image.Image:
+    img, d = chrome(NAV_FOR["shipping"], "Shipping — backorder")
+    d.text((220, 104), "Create backorder", font=FB18, fill=TEXT)
+    rr(d, [220, 150, 900, 480], fill=PANEL, outline=BORDER, radius=8)
+    bid = CASE.get("backorder_id", "BO-9014")
+    for i, (k, v) in enumerate(
+        [
+            ("SKU", CASE.get("part_sku", "BATT-14-NS")),
+            ("Ticket", CASE["ticket_id"]),
+            ("ETA", "10–14 business days"),
+            ("Notify", CASE.get("email", "customer@example.com")),
+        ]
+    ):
+        d.text((240, 176 + i * 40), k, font=F13, fill=MUTED)
+        input_box(d, 400, 168 + i * 40, 400, 34, v, focused=False)
+    if not confirmed:
+        btn(d, 400, 380, 160, 36, "Submit backorder", primary=True)
+    else:
+        chip(d, (400, 380), f"Created {bid}", GREEN, GREEN_BG)
+        toast(d, f"Backorder {bid} placed")
+    return img
+
+
+def scene_escalate(assessed: bool, routed: bool) -> Image.Image:
+    img, d = chrome(NAV_FOR["escalate"], "Escalation — severity desk")
+    d.text((220, 104), "Route P1 to on-call vs standard L2", font=FB18, fill=TEXT)
+    rr(d, [220, 150, 900, 520], fill=PANEL, outline=BORDER, radius=8)
+    sev = CASE.get("severity", "P1")
+    d.text((240, 176), f"Ticket {CASE['ticket_id']}", font=FB18, fill=TEXT)
+    d.text((240, 220), f"Reported priority: {sev}", font=F14, fill=MUTED)
+    if assessed:
+        chip(d, (240, 260), f"Assessed: {sev}", RED if sev == "P1" else "#1e40af", "#fee2e2" if sev == "P1" else "#dbeafe")
+    btn(d, 240, 320, 160, 34, "Assess severity", primary=not assessed)
+    if assessed and not routed:
+        if sev == "P1":
+            btn(d, 240, 380, 220, 34, f"Page on-call ({CASE.get('oncall', 'Oncall')})", primary=True)
+        else:
+            btn(d, 240, 380, 180, 34, "Assign L2 queue", primary=True)
+    if routed:
+        if sev == "P1":
+            chip(d, (240, 380), f"Paged {CASE.get('oncall', 'on-call')}", GREEN, GREEN_BG)
+            toast(d, "On-call paged")
+        else:
+            chip(d, (240, 380), f"Queued {CASE.get('l2_queue', 'Hardware-L2')}", GREEN, GREEN_BG)
+            toast(d, "Assigned to L2")
+    btn(d, 240, 450, 140, 34, "Update ticket", primary=False)
     return img
 
 
@@ -517,6 +642,8 @@ def encode(frames_dir: Path, mp4: Path):
 
 
 def film(rec: Recorder):
+    set_procedure_nav("warranty")
+    status = CASE.get("warranty_status", "ACTIVE")
     # --- LOOKUP_CUSTOMER ---
     t0 = rec.t
     img = scene_lookup("", False, None, False)
@@ -685,52 +812,256 @@ def film(rec: Recorder):
     )
 
 
+def film_crm_prefix(rec: Recorder) -> Image.Image:
+    """Shared LOOKUP → TICKET → DEVICE opener. Returns last img."""
+    t0 = rec.t
+    img = scene_lookup("", False, None, False)
+    for x, y, c in hold_frames(int(0.5 * FPS), 400, 174):
+        rec.add(img, x, y, c)
+    for typed in type_frames(CASE["customer_id"], cps=10):
+        img = scene_lookup(typed, False, None, False)
+        rec.add(img, 300 + len(typed) * 8, 174)
+    for x, y, c in move_frames(int(0.4 * FPS), 300, 174, 640, 174):
+        rec.add(img, x, y, c)
+    for x, y, c in hold_frames(int(0.25 * FPS), 640, 174, click=True):
+        rec.add(img, x, y, c)
+    img = scene_lookup(CASE["customer_id"], True, 1, True)
+    for x, y, c in hold_frames(int(1.8 * FPS), 420, 280):
+        rec.add(img, x, y, c)
+    rec.mark_event("LOOKUP_CUSTOMER", "Search customer", {"customer_id": CASE["customer_id"]}, t0)
+
+    t0 = rec.t
+    img = scene_ticket(True, True, 0)
+    for x, y, c in hold_frames(int(2.0 * FPS), 380, 180):
+        rec.add(img, x, y, c)
+    rec.mark_event("GET_TICKET", "Open ticket", {"ticket_id": CASE["ticket_id"]}, t0)
+
+    t0 = rec.t
+    img = scene_device(True)
+    for x, y, c in hold_frames(int(2.0 * FPS), 360, 180):
+        rec.add(img, x, y, c)
+    rec.mark_event("GET_DEVICE", "Open device", {"device_id": CASE["device_id"]}, t0)
+    return img
+
+
+def film_parts(rec: Recorder) -> None:
+    set_procedure_nav("parts")
+    stock = CASE.get("stock", "IN_STOCK")
+    img = film_crm_prefix(rec)
+
+    t0 = rec.t
+    img = scene_inventory(False)
+    for x, y, c in hold_frames(int(0.8 * FPS), 400, 280):
+        rec.add(img, x, y, c)
+    img = scene_inventory(True)
+    for x, y, c in hold_frames(int(2.4 * FPS), 400, 280):
+        rec.add(img, x, y, c)
+    rec.mark_event(
+        "CHECK_PARTS_STOCK",
+        "Check parts stock",
+        {"part_sku": CASE.get("part_sku"), "stock": stock},
+        t0,
+    )
+
+    t0 = rec.t
+    if stock == "IN_STOCK":
+        img = scene_shipment(False)
+        for x, y, c in hold_frames(int(1.0 * FPS), 470, 400):
+            rec.add(img, x, y, c)
+        img = scene_shipment(True)
+        for x, y, c in hold_frames(int(2.2 * FPS), 470, 400):
+            rec.add(img, x, y, c)
+        rec.mark_event(
+            "CREATE_PARTS_SHIPMENT",
+            "Create parts shipment",
+            {"shipment_id": CASE.get("shipment_id")},
+            t0,
+        )
+        ticket_status, linked, tnote = "Parts shipped", CASE.get("shipment_id", "SH"), f"Shipped {CASE.get('shipment_id')}"
+    else:
+        img = scene_backorder(False)
+        for x, y, c in hold_frames(int(1.0 * FPS), 470, 400):
+            rec.add(img, x, y, c)
+        img = scene_backorder(True)
+        for x, y, c in hold_frames(int(2.2 * FPS), 470, 400):
+            rec.add(img, x, y, c)
+        rec.mark_event(
+            "CREATE_BACKORDER",
+            "Create backorder",
+            {"backorder_id": CASE.get("backorder_id")},
+            t0,
+        )
+        ticket_status, linked, tnote = "Parts backordered", CASE.get("backorder_id", "BO"), f"Backorder {CASE.get('backorder_id')}"
+
+    t0 = rec.t
+    img = scene_update(True, False, tnote, ticket_status=ticket_status, linked=linked)
+    for x, y, c in hold_frames(int(1.2 * FPS), 460, 376):
+        rec.add(img, x, y, c)
+    img = scene_update(True, True, tnote, ticket_status=ticket_status, linked=linked)
+    for x, y, c in hold_frames(int(2.2 * FPS), 460, 376):
+        rec.add(img, x, y, c)
+    rec.mark_event("UPDATE_TICKET", "Update ticket", {"ticket_id": CASE["ticket_id"], "status": ticket_status}, t0)
+
+
+def film_escalate(rec: Recorder) -> None:
+    set_procedure_nav("escalate")
+    sev = CASE.get("severity", "P1")
+
+    # escalate starts on tickets
+    t0 = rec.t
+    img = scene_ticket(True, True, 0)
+    for x, y, c in hold_frames(int(2.2 * FPS), 380, 180):
+        rec.add(img, x, y, c)
+    rec.mark_event("GET_TICKET", "Open ticket", {"ticket_id": CASE["ticket_id"]}, t0)
+
+    t0 = rec.t
+    img = scene_lookup(CASE["customer_id"], True, 1, True)
+    for x, y, c in hold_frames(int(2.0 * FPS), 420, 280):
+        rec.add(img, x, y, c)
+    rec.mark_event("LOOKUP_CUSTOMER", "Search customer", {"customer_id": CASE["customer_id"]}, t0)
+
+    t0 = rec.t
+    img = scene_escalate(False, False)
+    for x, y, c in hold_frames(int(1.0 * FPS), 320, 340):
+        rec.add(img, x, y, c)
+    img = scene_escalate(True, False)
+    for x, y, c in hold_frames(int(2.2 * FPS), 320, 340):
+        rec.add(img, x, y, c)
+    rec.mark_event("ASSESS_SEVERITY", "Assess severity", {"severity": sev}, t0)
+
+    t0 = rec.t
+    img = scene_escalate(True, True)
+    for x, y, c in hold_frames(int(2.4 * FPS), 350, 400):
+        rec.add(img, x, y, c)
+    if sev == "P1":
+        rec.mark_event("PAGE_ONCALL", "Page on-call", {"oncall": CASE.get("oncall")}, t0)
+        ticket_status, linked = "Escalated to on-call", CASE.get("oncall", "on-call")
+    else:
+        rec.mark_event("ASSIGN_L2_QUEUE", "Assign L2 queue", {"l2_queue": CASE.get("l2_queue")}, t0)
+        ticket_status, linked = "Assigned L2", CASE.get("l2_queue", "Hardware-L2")
+
+    t0 = rec.t
+    tnote = f"Severity {sev}; routed"
+    img = scene_update(True, False, tnote, ticket_status=ticket_status, linked=linked)
+    for x, y, c in hold_frames(int(1.2 * FPS), 460, 376):
+        rec.add(img, x, y, c)
+    img = scene_update(True, True, tnote, ticket_status=ticket_status, linked=linked)
+    for x, y, c in hold_frames(int(2.2 * FPS), 460, 376):
+        rec.add(img, x, y, c)
+    rec.mark_event("UPDATE_TICKET", "Update ticket", {"ticket_id": CASE["ticket_id"], "status": ticket_status}, t0)
+
+
 def generate_sample(spec: dict) -> dict:
-    """Render one warranty video. `spec` keys: video_id, path_type, split, case."""
+    """Render one Stage-B video.
+
+    spec keys: video_id, path_type, split, case
+    optional: procedure = warranty|parts|escalate (default warranty)
+    """
     global CASE
     video_id = spec["video_id"]
-    path_type = spec["path_type"]  # active | expired
+    procedure = spec.get("procedure", "warranty")
+    path_type = spec["path_type"]
     split = spec.get("split", "train")
     case = dict(spec["case"])
-    case["warranty_status"] = "ACTIVE" if path_type == "active" else "EXPIRED"
     CASE = case
+    set_procedure_nav(procedure)
 
     out = ROOT / "data" / "generated" / "demonstrations" / "videos" / video_id
     out.mkdir(parents=True, exist_ok=True)
 
-    ops = [
-        "LOOKUP_CUSTOMER",
-        "GET_TICKET",
-        "GET_DEVICE",
-        "CHECK_WARRANTY",
-        "GET_DIAGNOSTICS",
-        "CREATE_REPAIR" if path_type == "active" else "RECORD_PAID_OPTIONS",
-        "UPDATE_TICKET",
-    ]
+    if procedure == "parts":
+        family = "parts_fulfillment"
+        stock = "IN_STOCK" if path_type == "in_stock" else "OUT_OF_STOCK"
+        case["stock"] = stock
+        CASE = case
+        ops = [
+            "LOOKUP_CUSTOMER",
+            "GET_TICKET",
+            "GET_DEVICE",
+            "CHECK_PARTS_STOCK",
+            "CREATE_PARTS_SHIPMENT" if path_type == "in_stock" else "CREATE_BACKORDER",
+            "UPDATE_TICKET",
+        ]
+        goal = (
+            "Fulfill spare part for failed device when in stock"
+            if path_type == "in_stock"
+            else "Backorder spare part when inventory is out of stock"
+        )
+        sop = "Search → ticket → device → check stock → ship/backorder → update ticket"
+        film_fn = film_parts
+        case_out = {
+            "customer_id": case["customer_id"],
+            "device_id": case["device_id"],
+            "ticket_id": case["ticket_id"],
+            "part_sku": case.get("part_sku"),
+            "stock": stock,
+        }
+    elif procedure == "escalate":
+        family = "severity_escalation"
+        sev = "P1" if path_type == "p1" else "P2"
+        case["severity"] = sev
+        CASE = case
+        ops = [
+            "GET_TICKET",
+            "LOOKUP_CUSTOMER",
+            "ASSESS_SEVERITY",
+            "PAGE_ONCALL" if path_type == "p1" else "ASSIGN_L2_QUEUE",
+            "UPDATE_TICKET",
+        ]
+        goal = "Triage P1 ticket and page on-call" if path_type == "p1" else "Route standard severity to L2 queue"
+        sop = "Open ticket → lookup customer → assess severity → page/assign → update ticket"
+        film_fn = film_escalate
+        case_out = {
+            "customer_id": case["customer_id"],
+            "ticket_id": case["ticket_id"],
+            "severity": sev,
+        }
+    else:
+        family = "warranty_resolution"
+        case["warranty_status"] = "ACTIVE" if path_type == "active" else "EXPIRED"
+        CASE = case
+        ops = [
+            "LOOKUP_CUSTOMER",
+            "GET_TICKET",
+            "GET_DEVICE",
+            "CHECK_WARRANTY",
+            "GET_DIAGNOSTICS",
+            "CREATE_REPAIR" if path_type == "active" else "RECORD_PAID_OPTIONS",
+            "UPDATE_TICKET",
+        ]
+        goal = (
+            "Resolve laptop hardware warranty and create repair if covered"
+            if path_type == "active"
+            else "Resolve expired warranty case and record paid service options"
+        )
+        sop = (
+            "Search customer → open ticket → open device → check warranty → run diagnostics → create repair → update ticket"
+            if path_type == "active"
+            else "Search customer → open ticket → open device → check warranty → run diagnostics → record paid options → update ticket"
+        )
+        film_fn = film
+        case_out = {
+            "customer_id": case["customer_id"],
+            "device_id": case["device_id"],
+            "ticket_id": case["ticket_id"],
+            "warranty_id": case["warranty_id"],
+            "warranty_status": case["warranty_status"],
+        }
 
     with tempfile.TemporaryDirectory() as td:
         rec = Recorder(Path(td))
-        film(rec)
+        film_fn(rec)
         mp4 = out / "video.mp4"
         encode(rec.td, mp4)
         duration = round(rec.t, 2)
         events = rec.events
 
-    goal = (
-        "Resolve laptop hardware warranty and create repair if covered"
-        if path_type == "active"
-        else "Resolve expired warranty case and record paid service options"
-    )
-    sop = (
-        "Search customer → open ticket → open device → check warranty → run diagnostics → create repair → update ticket"
-        if path_type == "active"
-        else "Search customer → open ticket → open device → check warranty → run diagnostics → record paid options → update ticket"
-    )
     meta = {
         "video_id": video_id,
         "source_dataset": "teachonce_self_synthetic",
         "generation_method": "synthetic_screen_recording",
-        "family": "warranty_resolution",
+        "procedure": procedure,
+        "family": family,
         "split": split,
         "path_type": path_type,
         "duration_sec": duration,
@@ -738,18 +1069,12 @@ def generate_sample(spec: dict) -> dict:
         "resolution": f"{W}x{H}",
         "goal": goal,
         "sop": sop,
-        "case": {
-            "customer_id": case["customer_id"],
-            "device_id": case["device_id"],
-            "ticket_id": case["ticket_id"],
-            "warranty_id": case["warranty_id"],
-            "warranty_status": case["warranty_status"],
-        },
+        "case": case_out,
         "ops": ops,
         "events": events,
         "tools_ref": "mvp_registry_v1",
         "prompt_variant": "light theme baseline",
-        "notes": f"PIL synthetic SaaS UI ({path_type}).",
+        "notes": f"PIL synthetic SaaS UI ({procedure}/{path_type}).",
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
 
@@ -757,7 +1082,7 @@ def generate_sample(spec: dict) -> dict:
         "teachonce_self_synthetic",
         [{"op": o} for o in ops],
         workflow_id=f"WF-{video_id}",
-        name=f"Warranty resolution ({path_type})",
+        name=f"{family} ({path_type})",
     )
     if not adapted["ok"]:
         raise RuntimeError(f"{video_id}: adapter failed: {adapted['errors']}")
@@ -768,9 +1093,10 @@ def generate_sample(spec: dict) -> dict:
 
     train_row = {
         "id": f"{split}-{video_id}",
-        "family": "warranty_resolution",
+        "family": family,
         "split": split,
         "path_type": path_type,
+        "procedure": procedure,
         "source_dataset": "teachonce_self_synthetic",
         "input": {
             "goal": goal,
@@ -789,6 +1115,7 @@ def generate_sample(spec: dict) -> dict:
     return {
         "ok": True,
         "video_id": video_id,
+        "procedure": procedure,
         "path_type": path_type,
         "split": split,
         "video": str(mp4.resolve()),

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Nemotron Nano 12B VL SFT on real videos → gold DAG (+ W&B).
 set -euo pipefail
-: "${WANDB_API_KEY:?export WANDB_API_KEY first}"
-
 ROOT="${ROOT:-$HOME/teachonce}"
-VENV="${NEMOTRON_VL_VENV:-$ROOT/nemotron-vl-venv}"
+if [[ -f "$ROOT/.env" ]]; then set -a; # shellcheck disable=SC1091
+  source "$ROOT/.env"; set +a; fi
+if [[ -z "${WANDB_API_KEY:-}" ]]; then
+  export WANDB_MODE="${WANDB_MODE:-offline}"
+  echo "warn: WANDB_API_KEY unset → WANDB_MODE=$WANDB_MODE"
+fi
+
+# Prefer vllm-env: already has a working mamba-ssm build. Do NOT rebuild mamba.
+VENV="${NEMOTRON_VL_VENV:-$ROOT/vllm-env}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export HF_HOME="${HF_HOME:-/data/hf-cache}"
 export WANDB_PROJECT="${WANDB_PROJECT:-teachonce-nemo-rl}"
@@ -16,43 +22,26 @@ export SFT_GRAD_ACCUM="${SFT_GRAD_ACCUM:-8}"
 export SFT_MAX_SAMPLES="${SFT_MAX_SAMPLES:-50}"
 export SFT_N_FRAMES="${SFT_N_FRAMES:-8}"
 export SFT_EVAL_EVERY="${SFT_EVAL_EVERY:-10}"
+export SFT_CKPT_EVERY="${SFT_CKPT_EVERY:-10}"
+export SFT_RESUME="${SFT_RESUME:-1}"
 export SFT_GT="${SFT_GT:-$ROOT/data/generated/nemo_rl/gt.jsonl}"
 export SFT_VIDEO_ROOT="${SFT_VIDEO_ROOT:-$ROOT/data/generated/demonstrations/videos}"
 export SFT_CKPT="${SFT_CKPT:-$ROOT/checkpoints/sft_nemotron_vl}"
+export SFT_PROGRESS="${SFT_PROGRESS:-$SFT_CKPT/progress.json}"
 export ROOT
 
 mkdir -p "$ROOT/logs" "$SFT_CKPT" "$HF_HOME"
-pkill -f '[p]ython -u .*sft_dag_wandb' 2>/dev/null || true
-pkill -f '[p]ython -u .*sft_nemotron_vl' 2>/dev/null || true
-pkill -f '[p]ython -u .*grpo_dag' 2>/dev/null || true
-pkill -f 'vllm serve' 2>/dev/null || true
+echo "SFT venv → $VENV (reuse mamba; no rebuild)"
+echo "SFT progress → $SFT_PROGRESS  ckpts → $SFT_CKPT (every ${SFT_CKPT_EVERY} steps)"
 
-need_deps=1
-if [[ -x "$VENV/bin/python" ]]; then
-  if "$VENV/bin/python" -c 'import torch; assert torch.cuda.is_available() and torch.version.cuda.startswith("12")' 2>/dev/null; then
-    need_deps=0
-  else
-    rm -rf "$VENV"
-  fi
+if [[ ! -x "$VENV/bin/python" ]]; then
+  echo "missing $VENV — set NEMOTRON_VL_VENV to the env that already has mamba-ssm" >&2
+  exit 1
 fi
-if [[ "$need_deps" -eq 1 ]]; then
-  uv venv "$VENV" --python 3.11
-  # Match driver: cu128 on H100 (CUDA≥12.8), else cu124 (teachonce-gpu 12.7)
-  CUDA_VER="$(nvidia-smi | sed -n 's/.*CUDA Version: \([0-9.]*\).*/\1/p' | head -1)"
-  major="${CUDA_VER%%.*}"; minor="${CUDA_VER#*.}"; minor="${minor%%.*}"
-  if [[ "${major:-0}" -gt 12 ]] || { [[ "${major:-0}" -eq 12 ]] && [[ "${minor:-0}" -ge 8 ]]; }; then
-    TORCH_INDEX="https://download.pytorch.org/whl/cu128"
-    TORCH_PKGS=("torch==2.7.1" "torchvision==0.22.1")
-  else
-    TORCH_INDEX="https://download.pytorch.org/whl/cu124"
-    TORCH_PKGS=("torch==2.6.0" "torchvision==0.21.0")
-  fi
-  uv pip install --python "$VENV/bin/python" "${TORCH_PKGS[@]}" --index-url "$TORCH_INDEX"
-  uv pip install --python "$VENV/bin/python" \
-    "transformers>=4.53,<4.54" "accelerate" "peft" "wandb" "tqdm" "sentencepiece" \
-    "timm" "open_clip_torch" "numpy" "pillow" "opencv-python-headless" "einops"
-  # optional; skip if toolchain mismatches
-  uv pip install --python "$VENV/bin/python" "causal-conv1d" "mamba-ssm==2.2.5" || true
-fi
+"$VENV/bin/python" -c "import mamba_ssm,torch; assert torch.cuda.is_available()" \
+  || { echo "mamba/torch broken in $VENV" >&2; exit 1; }
+# light SFT deps only — never force-build mamba here
+uv pip install --python "$VENV/bin/python" \
+  peft accelerate wandb tqdm pillow opencv-python-headless einops 2>/dev/null || true
 
 exec "$VENV/bin/python" -u "$ROOT/scripts/sft_nemotron_vl_wandb.py" 2>&1 | tee "$ROOT/logs/sft_nemotron_vl.log"

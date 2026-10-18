@@ -60,7 +60,24 @@ cat ~/teachonce/env.yaml
 |------|--------|
 | vLLM on VM | `http://127.0.0.1:8000/v1` |
 | API key | `teachonce-local-key` (`$LOCAL_VLLM_API_KEY`) |
+| **App model (SFT)** | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16-SFT` ← `/data/merged-nemotron-sft` |
 | Gym `env.yaml` | `~/teachonce/env.yaml` → **local vLLM only** |
+
+## Serve SFT for the app (Red Hat / OpenAI-compatible)
+
+Merged LoRA lives at `/data/merged-nemotron-sft` on `teachonce-gpu`. vLLM has no LoRA for this arch — serve merged weights.
+
+```bash
+# On A100
+brev exec teachonce-gpu 'bash ~/teachonce/scripts/start_vllm_sft.sh'
+# Mac → app
+./scripts/tunnel_vllm.sh   # leave running
+# App env:
+#   NVIDIA_VLLM_BASE_URL=http://127.0.0.1:8000/v1
+#   LOCAL_VLLM_API_KEY=teachonce-local-key
+#   MODEL_ID=nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16-SFT
+curl -s http://127.0.0.1:8000/v1/models -H "Authorization: Bearer teachonce-local-key"
+```
 
 ## Mac tunnel
 
@@ -76,7 +93,7 @@ source .env && ./scripts/smoke_test.sh
 brev shell teachonce-gpu
 cd ~/teachonce && source .env
 export PATH="$HOME/.local/bin:$PATH"   # Gym spawns need uv
-./scripts/start_vllm.sh                 # wait for /v1/models
+./scripts/start_vllm_sft.sh             # app: merged SFT (or start_vllm.sh for Qwen smoke)
 ./scripts/start_gym.sh
 RUN_GYM=1 ./scripts/smoke_test.sh
 ```
