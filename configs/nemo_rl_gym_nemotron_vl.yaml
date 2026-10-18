@@ -1,0 +1,51 @@
+# TeachOnce — NeMo-RL + NeMo Gym config sketch for Nemotron VL
+# Full GRPO needs NeMo-RL owning vLLM (expose_http_server) + driver CUDA ≥12.8.
+# On teachonce-gpu (CUDA 12.7): use scripts/smoke_gym_nemotron_vl.sh for Gym↔vLLM,
+# and scripts/smoke_gym_rl_bridge.py for reward→RL-batch proof without weight update.
+
+# Docs: https://docs.nvidia.com/nemo/rl/latest/design-docs/nemo-gym-integration.html
+# Entry: /data/nemo-rl/examples/nemo_gym/run_grpo_nemo_gym.py --config <this>
+
+grpo:
+  max_num_epochs: 1
+  num_prompts_per_step: 2
+  num_generations_per_prompt: 2
+  max_rollout_turns: 1
+  max_num_steps: 2
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  val_period: 0
+  val_at_start: false
+  seed: 42
+
+policy:
+  model_name: "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 4
+  train_micro_batch_size: 1
+  max_total_sequence_length: 4096
+  precision: "bfloat16"
+  generation:
+    backend: vllm
+    vllm_cfg:
+      async_engine: true
+      expose_http_server: true
+      # When NeMo-RL owns the GPU, stop TeachOnce's external vLLM first.
+
+env:
+  should_use_nemo_gym: true
+  nemo_gym:
+    # Local Gym only — never api.openai.com
+    config_paths:
+      - resources_servers/mcqa/configs/mcqa.yaml
+      - responses_api_agents/simple_agent/configs/simple_agent.yaml
+      - responses_api_models/vllm_model/configs/vllm_model.yaml
+    # policy_base_url injected by NeMo-RL from its vLLM HTTP workers
+
+logger:
+  log_dir: results/nemo_rl_gym_nemotron_vl
+  wandb_enabled: false
+
+checkpointing:
+  enabled: false

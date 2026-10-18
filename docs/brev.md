@@ -1,7 +1,22 @@
 # TeachOnce — Brev / vLLM / NeMo Gym (Phase 0)
 
-**Status:** smoke green (vLLM + Gym↔vLLM)  
-**Last updated:** 2026-10-17  
+**Status:** smoke green (Nemotron VL vLLM + Gym↔Nemotron + Gym→RL bridge)  
+**Last updated:** 2026-10-18
+
+## Dual-instance (serve + RL)
+
+| Instance | Machine | Role | CUDA |
+|----------|---------|------|------|
+| `teachonce-gpu` | Crusoe A100 80GB | Serve Nemotron VL + Gym eval | 12.7 |
+| `teachonce-rl` | Hyperstack H100 80GB | Train / weight updates | **12.8** (NeMo-RL capable) |
+
+RL bootstrap: `scripts/bootstrap_rl.sh` → `grpo-venv` (torch cu128) + Gym 0.7.0 + `/data/nemo-rl` @ v0.5.0.
+
+```bash
+brev exec teachonce-rl 'set -a; . ~/teachonce/.wandb.env; set +a; bash ~/teachonce/scripts/run_grpo_dag_wandb.sh'
+```
+
+  
 
 ## Instance
 
@@ -68,16 +83,25 @@ RUN_GYM=1 ./scripts/smoke_test.sh
 
 Stop: `./scripts/stop_services.sh` · idle credits: `brev stop teachonce-gpu`
 
-## Gym smoke results (2026-10-17)
+## Gym ↔ Nemotron VL smoke (2026-10-18)
 
-| Artifact | Path on VM |
-|----------|------------|
-| Rollouts | `~/teachonce/results/mcqa_rollouts.jsonl` |
-| Metrics | `~/teachonce/results/mcqa_rollouts_aggregate_metrics.json` |
-| Inspect | `~/teachonce/inspect.txt` |
+Policy: `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` on `:8000` (`vllm-nemotron-env`).
 
-Key metrics: `mean/reward` **0.4**, `pass@1/accuracy` **40%** (score irrelevant — E2E green).  
-Wired with `--model-type vllm_model` → `http://127.0.0.1:8000/v1`.
+```bash
+brev exec teachonce-gpu 'bash ~/teachonce/scripts/smoke_gym_nemotron_vl.sh'
+brev exec teachonce-gpu 'python3 ~/teachonce/scripts/smoke_gym_rl_bridge.py'
+```
+
+| Artifact | Path |
+|----------|------|
+| Rollouts | `~/teachonce/results/nemotron_vl_mcqa_rollouts.jsonl` |
+| Metrics | `~/teachonce/results/nemotron_vl_mcqa_rollouts_aggregate_metrics.json` |
+| RL bridge batch | `~/teachonce/results/gym_rl_bridge_batch.jsonl` |
+| RL config sketch | `~/teachonce/configs/nemo_rl_gym_nemotron_vl.yaml` |
+
+Result: **GYM_NEMOTRON_VL_SMOKE_OK** (3 MCQA rollouts, mean reward ≈0.67) + **GYM_RL_BRIDGE_OK**.
+
+Earlier Qwen Gym smoke (2026-10-17): `results/mcqa_rollouts.jsonl`, mean/reward 0.4.
 
 ## NVIDIA-only confirmation
 
@@ -85,20 +109,15 @@ Wired with `--model-type vllm_model` → `http://127.0.0.1:8000/v1`.
 - `--model-type vllm_model`
 - **Zero** OpenAI / Anthropic / Gemini / OpenRouter keys used
 
-## NeMo-RL / W&B smoke
+## NeMo-RL / Gym integration
 
 | Item | Value |
 |------|--------|
 | Driver | 565.57.01 → **CUDA 12.7 max** |
-| Official NeMo-RL | `main`/v0.5+ need torch **cu128+** → fails on this image |
-| Cloned (reference) | `/data/nemo-rl` @ **v0.5.0** |
-| Runnable smoke | `scripts/run_grpo_smoke_wandb.sh` (HF GRPO-style, cu124) |
-| Live view | `smoke-test/phase0_integration.ipynb` §4 + W&B |
-
-```bash
-export WANDB_API_KEY=…   # https://wandb.ai/authorize
-brev exec teachonce-gpu 'bash ~/teachonce/scripts/run_grpo_smoke_wandb.sh'
-```
+| Official NeMo-RL | `/data/nemo-rl` @ **v0.5.0** — needs torch **cu128+** for weight updates |
+| Gym↔RL on this VM | bridge smoke above (rewards → RL-shaped batch) |
+| Full GRPO entry | `/data/nemo-rl/examples/nemo_gym/run_grpo_nemo_gym.py` + `configs/nemo_rl_gym_nemotron_vl.yaml` (needs CUDA≥12.8 + stop external vLLM so RL owns GPU) |
+| HF GRPO fallback | `scripts/run_grpo_smoke_wandb.sh` |
 
 ## Unresolved / notes
 
@@ -106,4 +125,4 @@ brev exec teachonce-gpu 'bash ~/teachonce/scripts/run_grpo_smoke_wandb.sh'
 - Pin `transformers<5` with this vLLM build
 - Ensure `~/.local/bin` on `PATH` before `gym env start` (needs `uv`)
 - Eval input must be **mcqa** `example.jsonl` under site-packages (not nested rglob)
-- Full NeMo-RL: need newer Brev driver / NGC container, then `run_nemo_rl_smoke.sh`
+- Full NeMo-RL GRPO: newer Brev driver / NGC container
