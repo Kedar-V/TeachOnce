@@ -18,6 +18,7 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts.baseline_vllm_dag import DEFAULT_GT, sample_eval_rows  # noqa: E402
 from scripts.nemo_rl_gt import dag_reward  # noqa: E402
 from scripts.sft_nemotron_vl_wandb import (  # noqa: E402
     N_FRAMES,
@@ -37,12 +38,14 @@ except ImportError as e:
 
 MODEL = os.environ.get("SFT_MODEL", "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16")
 ADAPTER = Path(os.environ.get("SFT_ADAPTER", str(ROOT / "checkpoints/sft_nemotron_vl_100/step_30")))
-GT = Path(os.environ.get("SFT_GT", str(ROOT / "data/generated/nemo_rl/gt.jsonl")))
+GT = Path(os.environ.get("EVAL_GT", os.environ.get("SFT_GT", str(DEFAULT_GT))))
 OUT = Path(os.environ.get("SFT_EVAL_OUT", str(ROOT / "results/sft_hf_dag.json")))
-MAX_SAMPLES = int(os.environ.get("SFT_EVAL_N", "25"))
+MAX_SAMPLES = int(os.environ.get("EVAL_N", os.environ.get("SFT_EVAL_N", "50")))
 MAX_NEW = int(os.environ.get("SFT_MAX_NEW_EVAL", "1024"))
 SHARD = int(os.environ.get("SFT_SHARD", "0"))
 NUM_SHARDS = int(os.environ.get("SFT_NUM_SHARDS", "1"))
+_SEED_ENV = os.environ.get("EVAL_SEED", "").strip()
+EVAL_SEED: int | None = int(_SEED_ENV) if _SEED_ENV else None
 
 
 def main() -> None:
@@ -56,7 +59,10 @@ def main() -> None:
 
     torch.distributed.get_rank = _safe_rank  # type: ignore[method-assign]
 
-    rows = [json.loads(l) for l in GT.read_text().splitlines() if l.strip()][:MAX_SAMPLES]
+    pool = [json.loads(l) for l in GT.read_text().splitlines() if l.strip()]
+    rows, seed = sample_eval_rows(pool, MAX_SAMPLES, EVAL_SEED)
+    sample_ids = [r.get("video_id") or r.get("id") for r in rows]
+    print(f"eval sample n={len(rows)}/{len(pool)} seed={seed} gt={GT}", flush=True)
     if NUM_SHARDS > 1:
         rows = rows[SHARD::NUM_SHARDS]
         print(f"shard {SHARD}/{NUM_SHARDS} n={len(rows)}", flush=True)
@@ -176,6 +182,10 @@ def main() -> None:
     summary = {
         "n": len(per),
         "n_success": n_ok,
+        "n_pool": len(pool),
+        "seed": seed,
+        "sample_ids": sample_ids,
+        "gt": str(GT),
         "model": MODEL,
         "adapter": str(ADAPTER) if ADAPTER.exists() else None,
         "input": "hf_video_frames",

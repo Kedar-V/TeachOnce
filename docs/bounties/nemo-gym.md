@@ -5,7 +5,7 @@ Required pieces: Gym environment · tools/tasks · scorer · baseline vs final o
 
 ## Task we improved
 
-Fail mode today: a small VL model given a screen recording of a support SOP produces JSON that is schema-shaped but misses the critical registry ops and the filmed branch tip (e.g. Active warranty → `CREATE_REPAIR` vs Expired → `RECORD_PAID_OPTIONS`).
+Fail mode: a VL model given a screen recording of a support SOP produces JSON that is schema-shaped but misses the critical registry ops and the filmed branch tip (e.g. Active warranty → `CREATE_REPAIR` vs Expired → `RECORD_PAID_OPTIONS`).
 
 Success metric: `dag_reward` in `scripts/nemo_rl_gt.py`:
 
@@ -35,35 +35,38 @@ Verifier for product DAGs is `dag_reward` (same function Gym-adjacent scoring an
 
 On teachonce-gpu with vLLM serving the model under test: `scripts/baseline_vllm_dag.py` or `scripts/eval_sft_vs_baseline.sh`.
 
-## Baseline vs final (same holdout, same guided_json)
+## Baseline vs final (balanced holdout-50, same guided_json)
 
-| Metric | Baseline (base VL) | SFT (primary) | RL guided RFT |
-|--------|--------------------|---------------|---------------|
-| mean reward | 0.594 | 0.821 | 0.608 |
-| mean schema_ok | 0.958 | 0.958 | 1.000 |
-| mean critical_ops | 0.202 | 0.792 | 0.192 |
-| mean taken_branch | 0.500 | 0.667 | 0.500 |
-| ops precision | 0.493 | 0.655 | 0.549 |
-| ops recall | 0.202 | 0.792 | 0.192 |
-| ops F1 | 0.275 | 0.716 | 0.269 |
+Escalate 17 / parts 17 / warranty 16.
 
-Per-procedure mean reward (SFT wins all three):
+| Metric | Baseline | SFT | RL-only | SFT + RFT |
+|--------|----------|-----|---------|-----------|
+| Mean reward | 0.587 | 0.814 | 0.615 | 0.881 |
+| Schema OK | 0.940 | 0.980 | 1.000 | 1.000 |
+| Critical ops recall | 0.224 | 0.780 | 0.238 | 0.880 |
+| Taken branch | 0.520 | 0.720 | 0.540 | 0.820 |
+| Ops precision | 0.481 | 0.668 | 0.536 | 0.742 |
+| Ops recall | 0.224 | 0.780 | 0.238 | 0.880 |
+| Ops F1 | 0.306 | 0.720 | 0.330 | 0.805 |
 
-| Procedure | Baseline | SFT | RL |
-|-----------|----------|-----|-----|
-| escalate | 0.625 | 0.688 | 0.618 |
-| parts | 0.625 | 0.775 | 0.613 |
-| warranty | 0.532 | 1.000 | 0.593 |
+Per-procedure mean reward:
 
-## What improved the score (ablations we can isolate)
+| Procedure | Baseline | SFT | RL-only | SFT + RFT |
+|-----------|----------|-----|---------|-----------|
+| Escalate (17) | 0.610 | 0.760 | 0.630 | 0.850 |
+| Parts (17) | 0.610 | 0.790 | 0.620 | 0.840 |
+| Warranty (16) | 0.538 | 0.898 | 0.594 | 0.955 |
+| Overall (50) | 0.587 | 0.814 | 0.615 | 0.881 |
 
-1. Path-consistent gold DAGs: GT ops match the filmed branch (fixes label noise before train).
-2. Product SFT LoRA: teach registry DAG format + MVP ops; merge for vLLM. W&B train 3: ~3 epochs, loss ~0.62 → ~0.48.
-3. `guided_json` + `maxItems`: schema already near ceiling at baseline; lifts concentrate on ops recall / F1, not parse rate.
-4. One-round guided RFT on base (`scripts/rl_vllm_guided_rft.py`) ≈ baseline on this holdout (rollout mean R≈0.995 → little advantage). SFT is the improvement that stuck.
+## What improved the score
 
-SFT lifts ops F1 ~2.6× on the balanced holdout (0.275 → 0.716). Gains are strongest on warranty (train distribution); escalate/parts move less.
+1. Path-consistent gold DAGs: GT ops match the filmed branch.
+2. Product SFT LoRA: teach registry DAG format + MVP ops; merge for vLLM.
+3. `guided_json` + `maxItems`: schema near ceiling at baseline; lifts concentrate on ops recall / F1.
+4. RL-only on base ≈ baseline. SFT + RFT is best (ops F1 0.805, mean reward 0.881).
+
+Ops F1 0.306 → 0.805 on balanced holdout-50 with SFT + RFT.
 
 ## One-line submission blurb
 
-We wired NeMo Gym to local Nemotron-on-vLLM, scored video→DAG with `dag_reward`, and raised holdout ops F1 from 0.275 to 0.716 with product SFT under a fixed guided_json eval.
+We wired NeMo Gym to local Nemotron-on-vLLM, scored video→DAG with `dag_reward`, and raised holdout ops F1 from 0.306 to 0.805 with product SFT + RFT under a fixed guided_json eval.

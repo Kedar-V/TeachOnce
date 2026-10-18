@@ -16,7 +16,13 @@ PORT="${VLLM_PORT:-8000}"
 VIDEO_ROOT="${VIDEO_ROOT:-$ROOT/data/generated/demonstrations/videos}"
 LOG="$ROOT/logs/vllm_sft_merged.log"
 PIDFILE="$ROOT/vllm.pid"
-MAX_SAMPLES="${SFT_EVAL_N:-20}"
+MAX_SAMPLES="${EVAL_N:-${SFT_EVAL_N:-50}}"
+EVAL_GT="${EVAL_GT:-$ROOT/data/generated/nemo_rl/gt_train_balanced100.jsonl}"
+# omit EVAL_SEED for a new random holdout-50 each run; set it to reproduce
+SEED_ARGS=()
+if [[ -n "${EVAL_SEED:-}" ]]; then
+  SEED_ARGS=(--seed "$EVAL_SEED")
+fi
 
 [[ -d "$MERGED" ]] || { echo "missing merged model $MERGED"; exit 1; }
 [[ -x "$VENV/bin/vllm" ]] || { echo "missing $VENV"; exit 1; }
@@ -56,11 +62,12 @@ done
 
 "$VENV/bin/python" -u "$ROOT/scripts/baseline_vllm_dag.py" \
   --model "$MODEL_NAME" \
-  --gt "$ROOT/data/generated/nemo_rl/gt.jsonl" \
+  --gt "$EVAL_GT" \
   --video-root "$VIDEO_ROOT" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
   --api-key "$KEY" \
   --max-samples "$MAX_SAMPLES" \
+  "${SEED_ARGS[@]}" \
   --out "$ROOT/results/sft_lora_vllm_dag.json"
 
 echo "=== BASELINE ($BASE_ID) ==="

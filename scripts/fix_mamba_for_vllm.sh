@@ -95,13 +95,18 @@ for i in $(seq 1 120); do
   sleep 5
 done
 
+EVAL_GT="${EVAL_GT:-$ROOT/data/generated/nemo_rl/gt_train_balanced100.jsonl}"
+EVAL_N="${EVAL_N:-50}"
+SEED_ARGS=()
+[[ -n "${EVAL_SEED:-}" ]] && SEED_ARGS=(--seed "$EVAL_SEED")
 "$V" -u "$ROOT/scripts/baseline_vllm_dag.py" \
-  --gt "$ROOT/data/generated/nemo_rl/gt.jsonl" \
+  --gt "$EVAL_GT" \
   --video-root "$ROOT/data/generated/demonstrations/videos" \
   --base-url http://127.0.0.1:8000/v1 \
   --api-key "$LOCAL_VLLM_API_KEY" \
   --model "$MODEL_ID" \
-  --max-samples 25 \
+  --max-samples "$EVAL_N" \
+  "${SEED_ARGS[@]}" \
   --out "$ROOT/results/baseline_vllm_dag.json"
 
 echo "=== $(date -u) DONE ==="

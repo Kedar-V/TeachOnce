@@ -10,17 +10,36 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
+import secrets
 import sys
 import time
 from pathlib import Path
-
-import requests
-from tqdm.auto import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.nemo_rl_gt import dag_reward  # noqa: E402
 from scripts.tool_registry_adapter import MVP_OPS  # noqa: E402
+
+# Default eval pool: larger than 50 so each run can draw a fresh holdout-50.
+DEFAULT_GT = ROOT / "data/generated/nemo_rl/gt_train_balanced100.jsonl"
+
+
+def sample_eval_rows(
+    rows: list[dict], n: int, seed: int | None
+) -> tuple[list[dict], int]:
+    """Draw `n` rows without replacement. New seed each call when seed is None."""
+    if not rows:
+        raise SystemExit("empty GT pool")
+    if seed is None:
+        seed = secrets.randbelow(2**31)
+    rng = random.Random(seed)
+    k = min(n, len(rows)) if n > 0 else len(rows)
+    if k >= len(rows):
+        out = list(rows)
+        rng.shuffle(out)
+        return out, seed
+    return rng.sample(rows, k), seed
 
 
 def _action_variants() -> list[dict]:
@@ -139,6 +158,8 @@ def call_vllm(
     max_tokens: int,
     timeout: float,
 ) -> tuple[str, float]:
+    import requests
+
     # Real mp4 — vLLM loads via --allowed-local-media-path
     video_url = video_path.resolve().as_uri()  # file:///...
     content: list[dict] = [
@@ -182,20 +203,46 @@ def call_vllm(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gt", default=str(ROOT / "data/generated/nemo_rl/gt.jsonl"))
+    ap.add_argument(
+        "--gt",
+        default=os.environ.get("EVAL_GT", str(DEFAULT_GT)),
+        help="validation holdout pool (JSONL); samples --max-samples from this each run",
+    )
     ap.add_argument("--video-root", default=str(ROOT / "data/generated/demonstrations/videos"))
     ap.add_argument("--base-url", default=os.environ.get("NVIDIA_VLLM_BASE_URL", "http://127.0.0.1:8000/v1"))
     ap.add_argument("--api-key", default=os.environ.get("LOCAL_VLLM_API_KEY", "teachonce-local-key"))
     ap.add_argument("--model", default=os.environ.get("MODEL_ID", "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"))
-    ap.add_argument("--max-samples", type=int, default=25)
+    ap.add_argument(
+        "--max-samples",
+        type=int,
+        default=int(os.environ.get("EVAL_N", os.environ.get("SFT_EVAL_N", "50"))),
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="RNG seed for holdout sample; omit (or EVAL_SEED unset) for a new draw each run",
+    )
     ap.add_argument("--max-tokens", type=int, default=1024)
     ap.add_argument("--out", default=str(ROOT / "results/baseline_vllm_dag.json"))
     args = ap.parse_args()
     if "Nemotron" not in args.model and "nemotron" not in args.model.lower():
         raise SystemExit(f"baseline must use Nemotron VL, got {args.model!r}")
 
-    rows = [json.loads(l) for l in Path(args.gt).read_text().splitlines() if l.strip()]
-    rows = rows[: args.max_samples]
+    seed_arg = args.seed
+    if seed_arg is None and os.environ.get("EVAL_SEED", "").strip():
+        seed_arg = int(os.environ["EVAL_SEED"])
+
+    pool = [json.loads(l) for l in Path(args.gt).read_text().splitlines() if l.strip()]
+    rows, seed = sample_eval_rows(pool, args.max_samples, seed_arg)
+    sample_ids = [r.get("video_id") or r.get("id") for r in rows]
+    print(
+        f"eval sample n={len(rows)}/{len(pool)} seed={seed} gt={args.gt}",
+        flush=True,
+    )
+    import requests
+    from tqdm.auto import tqdm
+
     video_root = Path(args.video_root)
     schema = guided_schema()
 
@@ -274,6 +321,10 @@ def main() -> None:
     summary = {
         "n": len(per),
         "n_success": n_ok,
+        "n_pool": len(pool),
+        "seed": seed,
+        "sample_ids": sample_ids,
+        "gt": str(args.gt),
         "model": args.model,
         "input": "video_url/file://mp4",
         "guided_json": True,
@@ -294,5 +345,20 @@ def main() -> None:
     print(f"wrote {out}")
 
 
+def _selfcheck() -> None:
+    rows = [{"id": i} for i in range(100)]
+    a, sa = sample_eval_rows(rows, 50, seed=7)
+    b, sb = sample_eval_rows(rows, 50, seed=7)
+    assert sa == sb == 7 and [r["id"] for r in a] == [r["id"] for r in b]
+    c, sc = sample_eval_rows(rows, 50, seed=8)
+    assert sc == 8 and [r["id"] for r in c] != [r["id"] for r in a]
+    d, sd = sample_eval_rows(rows, 50, seed=None)
+    assert isinstance(sd, int) and len(d) == 50 and len({r["id"] for r in d}) == 50
+    print("sample_eval_rows ok")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--selfcheck":
+        _selfcheck()
+    else:
+        main()
